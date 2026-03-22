@@ -1,6 +1,6 @@
 # RunCloud Server Management MCP
 
-**Control your entire RunCloud infrastructure through Claude.** Manage servers, web applications, databases, SSL certificates, deployments, firewall rules, and run live SSH commands — all from a single AI conversation.
+**Control your entire RunCloud infrastructure through Claude.** Manage servers, web applications, databases, SSL certificates, deployments, firewall rules, run live SSH commands, and get cross-server search and dashboards — all from a single AI conversation.
 
 [![RunCloud](https://img.shields.io/badge/RunCloud-API%20v3-0066CC?style=flat-square&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0id2hpdGUiIGQ9Ik0xMiAyQzYuNDggMiAyIDYuNDggMiAxMnM0LjQ4IDEwIDEwIDEwIDEwLTQuNDggMTAtMTBTMTcuNTIgMiAxMiAyem0tMSAxNy45M1Y0LjA3YzMuOTQuNDkgNyAzLjg1IDcgNy45M3MtMy4wNiA3LjQ0LTcgNy45M3oiLz48L3N2Zz4=)](https://runcloud.io)
 [![MCP](https://img.shields.io/badge/Model%20Context%20Protocol-Compatible-blueviolet?style=flat-square)](https://modelcontextprotocol.io)
@@ -20,7 +20,7 @@ This MCP server bridges RunCloud's API directly into **Claude Desktop**, giving 
 
 ## What Makes This Powerful
 
-### 113 Tools Across Every RunCloud Feature
+### 128 Tools Across Every RunCloud Feature
 
 This is one of the most complete RunCloud API implementations available. Every documented endpoint is covered — nothing left out.
 
@@ -46,6 +46,14 @@ Instead of chaining 5 tool calls, compound tools do the heavy lifting in paralle
 | `all_servers_health` | Checks health across **every server** in your account at once |
 | `ssl_expiry_check` | Scans all web apps on a server, flags EXPIRED and EXPIRING_SOON certs |
 | `wordpress_quickstart` | Creates system user → database → DB user → grants access → web app → installs WordPress — **all in one command** |
+| `server_health_score` | Calculates a 0–100 score + letter grade based on memory, disk, load, and services |
+| `multi_server_dashboard` | Every server: name, IP, health score, webapp count, memory %, disk % — one view |
+| `webapp_inventory` | Every webapp across every server — domain, PHP version, stack mode — one table |
+| `find_webapp_by_domain` | Search ALL servers for a domain, returns which server and webapp it belongs to |
+| `failed_services_scan` | Scans all servers, returns only stopped/failed services — instant incident detection |
+| `security_audit` | Firewall rules + SSH keys + Fail2Ban IPs + external APIs — full security snapshot |
+| `open_ports_report` | Ports open to 0.0.0.0 only — highlights exposure before going live |
+| `deploy_and_verify` | Force git deploy + check webapp status + tail logs — full deploy cycle in one command |
 
 ### Auto-Pagination
 
@@ -73,7 +81,13 @@ List tools support `all: true` to automatically fetch every page of results. No 
 | 🔗 **External APIs** | 5 | Cloudflare, DigitalOcean, Linode API keys |
 | 📊 **Static Data** | 4 | Timezones, collations, installers, SSL protocols |
 | 🖥️ **SSH Execution** | 4 | Shell commands, WP-CLI, Artisan, log tailing |
-| ⚡ **Compound Tools** | 5 | server_overview, wordpress_quickstart, ssl_expiry_check, and more |
+| 🔍 **Search** | 2 | find_webapp_by_domain, webapp_inventory across all servers |
+| 📈 **Health & Monitoring** | 4 | Health score, multi-server dashboard, failed service scan |
+| 🔐 **Security** | 2 | Full security audit, open ports report |
+| 🚀 **Deployment** | 1 | Deploy and verify in one command |
+| 🟦 **WordPress SSH** | 4 | Health check, outdated plugins, admin audit, cache clear |
+| ⚡ **Performance SSH** | 3 | Load report, nginx top IPs, PHP error summary |
+| 🔗 **Compound Tools** | 5 | server_overview, wordpress_quickstart, ssl_expiry_check, and more |
 
 ---
 
@@ -184,6 +198,46 @@ Once connected, just talk to Claude naturally:
 "Check disk usage on /home/myapp"
 ```
 
+### Search & Cross-Server
+```
+"Which server is myblog.com on?"
+"Give me a full inventory of every web app across all my servers"
+"Are there any stopped services across any of my servers?"
+"Show me a dashboard of all my servers with health scores"
+```
+
+### Health & Security
+```
+"Give me a health score for server 12345"
+"Run a full security audit on server 12345 — firewall, SSH keys, blocked IPs"
+"Which ports are open to everyone? I want to review before going live"
+```
+
+### WordPress SSH Power Tools
+```
+"Run a full WordPress health check on /home/myuser/myapp/public"
+"Which plugins have updates available on my WordPress site?"
+"List all admin users — check for any suspicious accounts"
+"Clear all caches on my WordPress site including Redis"
+```
+
+### Performance Debugging
+```
+"Give me a full load report for server 12345"
+"Show me the top IPs hitting nginx — I think we're being scraped"
+"Summarize PHP errors from /home/myuser/myapp/logs/php-error.log"
+```
+
+### Works Across Claude Desktop, Claude Code, and n8n
+```
+# Claude Code (terminal) — register with:
+claude mcp add runcloud node /path/to/dist/index.js -e RUNCLOUD_API_KEY=xxx
+
+# Combined with n8n MCP in one conversation:
+"Set up a new WordPress site on RunCloud server 12345, then create an n8n
+ workflow that pings it every 5 minutes and sends a Telegram alert if it's down"
+```
+
 ---
 
 ## SSH Execution — How It Works
@@ -253,7 +307,7 @@ Then gives you the next steps: visit the WP install URL, install SSL, etc.
 ```
 runcloud-server-management-mcp/
 ├── src/
-│   └── index.ts          # Full MCP server (113 tools)
+│   └── index.ts          # Full MCP server (128 tools)
 ├── dist/                 # Compiled JavaScript (auto-generated)
 ├── package.json
 ├── tsconfig.json
