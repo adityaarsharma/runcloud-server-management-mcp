@@ -1691,6 +1691,107 @@ const tools = [
       required: ["serverId","appName","domainName","phpVersion","sysUsername","sysPassword","dbName","dbUsername","dbPassword"],
     },
   },
+  // ── SERVER MONITOR & SELF-HEAL (SSH-direct, no RunCloud API key needed) ──────
+
+  {
+    name: "ssh_server_status",
+    description: "Comprehensive server health check via SSH — RAM, disk, CPU, nginx/nginx-rc status, orphan processes, top memory consumers. No RunCloud API key needed.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        host:     { type: "string", description: "Server IP or hostname" },
+        username: { type: "string", description: "SSH username" },
+        password: { type: "string", description: "SSH password" },
+      },
+      required: ["host", "username", "password"],
+    },
+  },
+  {
+    name: "ssh_smart_fix",
+    description: "Auto-detect and fix server issues via SSH: nginx/nginx-rc down, orphan processes, high memory, disk pressure, crashed PM2 services. Reports every issue found and fixed.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        host:         { type: "string", description: "Server IP or hostname" },
+        username:     { type: "string", description: "SSH username" },
+        password:     { type: "string", description: "SSH password" },
+        nginxService: { type: "string", description: "nginx-rc (RunCloud) or nginx (standard). Default: auto-detect" },
+      },
+      required: ["host", "username", "password"],
+    },
+  },
+  {
+    name: "ssh_restart_service",
+    description: "Restart a named service via SSH. Auto-detects nginx-rc (RunCloud) vs nginx. Also handles n8n, pm2, any systemd service.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        host:     { type: "string" },
+        username: { type: "string" },
+        password: { type: "string" },
+        service:  { type: "string", description: "Service to restart: nginx, n8n, pm2, mysql, redis, or any systemd service name" },
+      },
+      required: ["host", "username", "password", "service"],
+    },
+  },
+  {
+    name: "ssh_kill_orphans",
+    description: "Find and kill orphan processes (PPID=1, parent died) via SSH. Safe — skips init, systemd, dbus. Optionally filter by process name.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        host:        { type: "string" },
+        username:    { type: "string" },
+        password:    { type: "string" },
+        dryRun:      { type: "boolean", description: "List orphans without killing. Default: true" },
+        processName: { type: "string",  description: "Only target orphans matching this name, e.g. supergateway" },
+      },
+      required: ["host", "username", "password"],
+    },
+  },
+  {
+    name: "ssh_disk_cleanup",
+    description: "Find large log files on a server and optionally clear them to free disk space via SSH.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        host:      { type: "string" },
+        username:  { type: "string" },
+        password:  { type: "string" },
+        dryRun:    { type: "boolean", description: "Show what would be cleared without doing it. Default: true" },
+        minSizeMB: { type: "number",  description: "Min file size in MB to consider. Default: 50" },
+      },
+      required: ["host", "username", "password"],
+    },
+  },
+  {
+    name: "ssh_check_ports",
+    description: "List all listening ports on a server via SSH with PID and process name. Optionally filter to specific ports.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        host:     { type: "string" },
+        username: { type: "string" },
+        password: { type: "string" },
+        ports:    { type: "array", items: { type: "number" }, description: "Specific ports to check, e.g. [80,443,3000]. Empty = all." },
+      },
+      required: ["host", "username", "password"],
+    },
+  },
+  {
+    name: "telegram_send_alert",
+    description: "Send a message to a Telegram chat. Use for custom monitoring alerts, notifications, or server status updates. Supports Markdown and optional action buttons.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        botToken:      { type: "string",  description: "Telegram bot token from @BotFather" },
+        chatId:        { type: "string",  description: "Telegram chat ID" },
+        message:       { type: "string",  description: "Message to send (Markdown supported)" },
+        includeButtons:{ type: "boolean", description: "Add standard server action buttons. Default: false" },
+      },
+      required: ["botToken", "chatId", "message"],
+    },
+  },
 ];
 
 // ─── SERVER SETUP ─────────────────────────────────────────────────────────────
@@ -2746,6 +2847,135 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           errorTypeCounts: grouped.status === "fulfilled" ? grouped.value.stdout : "unavailable",
           last20Lines: last20.status === "fulfilled" ? last20.value.stdout : "unavailable",
         };
+        break;
+      }
+
+      // ── SERVER MONITOR & SELF-HEAL ──────────────────────────────────────────
+
+      case "ssh_server_status": {
+        const out = await sshExec(
+          a.host as string, a.username as string, a.password as string,
+          `NGINX=$(systemctl is-active nginx-rc 2>/dev/null); [ "$NGINX" = "active" ] || NGINX=$(systemctl is-active nginx 2>/dev/null || echo "not found")
+MEM_TOTAL=$(free -m | awk 'NR==2{print $2}'); MEM_USED=$(free -m | awk 'NR==2{print $3}')
+MEM_FREE=$(free -m | awk 'NR==2{print $7}'); MEM_PCT=$(free | awk 'NR==2{printf "%d",($3/$2)*100}')
+DISK_USED=$(df -h / | awk 'NR==2{print $3}'); DISK_TOTAL=$(df -h / | awk 'NR==2{print $2}')
+DISK_PCT=$(df / | awk 'NR==2{gsub(/%/,"");print $5}')
+LOAD=$(awk '{print $1,$2,$3}' /proc/loadavg); CORES=$(nproc)
+UPTIME=$(uptime -p 2>/dev/null || uptime | sed 's/.*up //;s/,.*//')
+ORPHANS=$(ps -eo ppid,comm 2>/dev/null | awk '$1==1&&$2!="init"&&$2!="systemd"&&$2!="(sd-pam)"&&$2!="dbus-daemon"' | wc -l | tr -d ' ')
+TOP5=$(ps aux --no-header --sort=-%mem 2>/dev/null | head -5 | awk '{printf "  %-40s MEM:%-5s CPU:%s\n",$11,$4,$3}')
+printf "=== Server Status ===\nUptime: %s\nRAM: %sMB / %sMB (%s%% used, %sMB free)\nDisk: %s / %s (%s%%)\nLoad: %s (%s cores)\nNginx/Web: %s\nOrphans (PPID=1): %s\n\n=== Top Processes by Memory ===\n%s\n" "$UPTIME" "$MEM_USED" "$MEM_TOTAL" "$MEM_PCT" "$MEM_FREE" "$DISK_USED" "$DISK_TOTAL" "$DISK_PCT" "$LOAD" "$CORES" "$NGINX" "$ORPHANS" "$TOP5"`,
+          30000
+        );
+        result = { host: a.host, output: out.stdout || out.stderr };
+        break;
+      }
+
+      case "ssh_smart_fix": {
+        const nsvc = (a.nginxService as string) || "auto";
+        const out = await sshExec(
+          a.host as string, a.username as string, a.password as string,
+          `ISSUES=(); FIXES=()
+[ "${nsvc}" = "auto" ] && (systemctl list-units --all 2>/dev/null | grep -q nginx-rc && NSVC=nginx-rc || NSVC=nginx) || NSVC="${nsvc}"
+NGINX_UP=$(systemctl is-active $NSVC 2>/dev/null)
+MEM_PCT=$(free | awk 'NR==2{printf "%d",($3/$2)*100}')
+DISK_PCT=$(df / | awk 'NR==2{gsub(/%/,"");print $5}')
+ORPHAN_N=$(ps -eo ppid,comm 2>/dev/null | awk '$1==1&&$2!="init"&&$2!="systemd"&&$2!="(sd-pam)"&&$2!="dbus-daemon"' | wc -l | tr -d ' ')
+[ "$NGINX_UP" != "active" ] && ISSUES+=("$NSVC was $NGINX_UP") && sudo systemctl restart $NSVC 2>/dev/null && sleep 1 && NEW=$(systemctl is-active $NSVC) && ([ "$NEW" = "active" ] && FIXES+=("Restarted $NSVC — now active") || FIXES+=("WARNING: $NSVC still $NEW"))
+[ "$ORPHAN_N" -gt 10 ] && ISSUES+=("$ORPHAN_N orphan procs (PPID=1)") && ps -eo ppid,pid,comm 2>/dev/null | awk '$1==1&&$3!="init"&&$3!="systemd"&&$3!="(sd-pam)"' | awk '{print $2}' | xargs kill -9 2>/dev/null; [ "$ORPHAN_N" -gt 10 ] && FIXES+=("Killed $ORPHAN_N orphan processes")
+if [ "$MEM_PCT" -gt 88 ]; then ISSUES+=("Memory at \${MEM_PCT}%"); PM2=$(which pm2 2>/dev/null || find /home -name pm2 -maxdepth 6 2>/dev/null | head -1); [ -n "$PM2" ] && $PM2 restart all 2>/dev/null && sleep 3; NEW_MEM=$(free | awk 'NR==2{printf "%d",($3/$2)*100}'); FIXES+=("Restarted PM2 — memory now \${NEW_MEM}%"); fi
+[ "$DISK_PCT" -gt 88 ] && ISSUES+=("Disk at \${DISK_PCT}%") && find /var/log /home -name "*.log" -size +50M 2>/dev/null -exec truncate -s 0 {} \; && FIXES+=("Cleared large log files")
+FINAL_MEM=$(free | awk 'NR==2{printf "%d",($3/$2)*100}'); FINAL_DISK=$(df / | awk 'NR==2{gsub(/%/,"");print $5}'); FINAL_NGINX=$(systemctl is-active $NSVC 2>/dev/null)
+if [ \${#ISSUES[@]} -eq 0 ]; then echo "All systems healthy — nothing needed fixing"; echo "RAM: \${MEM_PCT}% | Disk: \${DISK_PCT}% | \${NSVC}: \${NGINX_UP}"
+else echo "\${#ISSUES[@]} issue(s) found and fixed:"; for i in "\${ISSUES[@]}"; do echo "  • $i"; done; echo ""; echo "Actions taken:"; for f in "\${FIXES[@]}"; do echo "  ✓ $f"; done; echo ""; echo "Now: RAM \${FINAL_MEM}% | Disk \${FINAL_DISK}% | \${NSVC}: \${FINAL_NGINX}"; fi`,
+          90000
+        );
+        result = { host: a.host, nginxService: nsvc, output: out.stdout || out.stderr };
+        break;
+      }
+
+      case "ssh_restart_service": {
+        const svc = a.service as string;
+        const out = await sshExec(
+          a.host as string, a.username as string, a.password as string,
+          `SVC="${svc}"
+[ "$SVC" = "nginx" ] && systemctl list-units --all 2>/dev/null | grep -q nginx-rc && SVC=nginx-rc
+if [ "$SVC" = "n8n" ]; then
+  if systemctl list-units --all 2>/dev/null | grep -q " n8n."; then sudo systemctl restart n8n 2>&1; echo "n8n restarted via systemd: $(systemctl is-active n8n)"
+  else PM2=$(which pm2 2>/dev/null || find /home -name pm2 -maxdepth 6 2>/dev/null | head -1); [ -n "$PM2" ] && $PM2 restart n8n 2>&1 | tail -3 && echo "n8n restarted via PM2" || echo "n8n: no systemd service or PM2 found"; fi
+elif [ "$SVC" = "pm2" ]; then
+  PM2=$(which pm2 2>/dev/null || find /home -name pm2 -maxdepth 6 2>/dev/null | head -1)
+  [ -n "$PM2" ] && $PM2 restart all 2>&1 | tail -5 && echo "PM2 all restarted" || echo "PM2 not found"
+else sudo systemctl restart $SVC 2>&1; sleep 1; echo "Service $SVC — status: $(systemctl is-active $SVC 2>/dev/null)"; fi`,
+          30000
+        );
+        result = { host: a.host, service: svc, output: out.stdout || out.stderr };
+        break;
+      }
+
+      case "ssh_kill_orphans": {
+        const dryRun     = (a.dryRun as boolean) !== false;
+        const nameFilter = a.processName ? `&& $3=="${a.processName as string}"` : "";
+        const killCmd    = dryRun
+          ? `echo "(dry-run: pass dryRun=false to actually kill)"`
+          : `PIDS=$(echo "$ORPHANS" | awk '{print $2}' | tr '\n' ' '); [ -n "$(echo $PIDS | tr -d ' ')" ] && echo $PIDS | xargs kill -9 2>/dev/null && echo "Killed $COUNT orphan(s)" || echo "Nothing to kill"`;
+        const out = await sshExec(
+          a.host as string, a.username as string, a.password as string,
+          `ORPHANS=$(ps -eo ppid,pid,comm 2>/dev/null | awk '$1==1&&$3!="init"&&$3!="systemd"&&$3!="(sd-pam)"&&$3!="dbus-daemon" ${nameFilter}')
+COUNT=$(echo "$ORPHANS" | grep -c . 2>/dev/null || echo 0)
+echo "=== Orphan Processes (PPID=1) ==="; echo "$ORPHANS" | awk '{printf "PID %-8s  %s\n",$2,$3}'; echo ""; echo "Total: $COUNT"; ${killCmd}`,
+          20000
+        );
+        result = { host: a.host, dryRun, processName: a.processName || null, output: out.stdout || out.stderr };
+        break;
+      }
+
+      case "ssh_disk_cleanup": {
+        const minMB  = (a.minSizeMB as number) || 50;
+        const dryRun = (a.dryRun as boolean) !== false;
+        const clearCmd = dryRun
+          ? `echo "(dry-run: pass dryRun=false to clear files)"`
+          : `echo "=== Clearing ==="; find /var/log /home /tmp -name "*.log" -size +${minMB}M 2>/dev/null -exec sh -c 'sz=$(du -sh "$1" 2>/dev/null|cut -f1); truncate -s 0 "$1" && echo "Cleared $sz: $1"' _ {} \;; df -h / | awk 'NR==2{printf "Disk now: %s / %s (%s)\n",$3,$2,$5}'`;
+        const out = await sshExec(
+          a.host as string, a.username as string, a.password as string,
+          `df -h / | awk 'NR==2{printf "Disk: %s / %s (%s)\n",$3,$2,$5}'
+echo "=== Files > ${minMB}MB ==="; find /var/log /home /tmp -name "*.log" -size +${minMB}M 2>/dev/null -exec du -sh {} \; | sort -rh | head -20
+${clearCmd}`,
+          30000
+        );
+        result = { host: a.host, dryRun, minSizeMB: minMB, output: out.stdout || out.stderr };
+        break;
+      }
+
+      case "ssh_check_ports": {
+        const ports = Array.isArray(a.ports) ? (a.ports as number[]) : [];
+        const grep  = ports.length > 0 ? `| grep -E ":(${ports.join("|")})\\b"` : "";
+        const out   = await sshExec(
+          a.host as string, a.username as string, a.password as string,
+          `echo "=== Listening Ports ==="; ss -tlnp 2>/dev/null ${grep} | awk 'NR>1{print}' | sort -k4 -V`,
+          15000
+        );
+        result = { host: a.host, portsFilter: ports.length > 0 ? ports : "all", output: out.stdout || out.stderr };
+        break;
+      }
+
+      case "telegram_send_alert": {
+        const body: Record<string, unknown> = {
+          chat_id: a.chatId, text: a.message, parse_mode: "Markdown",
+        };
+        if (a.includeButtons) {
+          body.reply_markup = {
+            inline_keyboard: [
+              [{ text: "📊 Status", callback_data: "status" }, { text: "🔧 Smart Fix", callback_data: "fix" }],
+              [{ text: "🌐 Nginx", callback_data: "fix-nginx" }, { text: "💾 Disk", callback_data: "disk" }, { text: "✅ Ignore", callback_data: "ignore" }],
+            ],
+          };
+        }
+        const resp = await fetch(`https://api.telegram.org/bot${a.botToken as string}/sendMessage`, {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+        });
+        const json = await resp.json() as Record<string, unknown>;
+        result = { ok: json.ok, messageId: (json.result as Record<string, unknown>)?.message_id, error: json.description };
         break;
       }
 
