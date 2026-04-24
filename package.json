@@ -1,7 +1,7 @@
 {
-  "name": "runcloud-mcp",
+  "name": "perch",
   "version": "1.0.0",
-  "description": "MCP Server for RunCloud API v3 — manage, monitor, and auto-fix servers from Claude",
+  "description": "Perch \u2014 Telegram bot + Claude Code plugin for RunCloud server management. Servers under one wing.",
   "main": "dist/index.js",
   "type": "module",
   "private": true,
@@ -9,12 +9,13 @@
   "author": "Aditya Sharma (https://adityaarsharma.com)",
   "repository": {
     "type": "git",
-    "url": "https://github.com/adityaarsharma/runcloud-server-management-mcp"
+    "url": "https://github.com/adityaarsharma/perch"
   },
   "engines": {
     "node": ">=18.0.0"
   },
   "keywords": [
+    "perch",
     "runcloud",
     "mcp",
     "model-context-protocol",
