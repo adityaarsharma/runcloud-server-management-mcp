@@ -96,11 +96,66 @@ function buildSshOpts(args: SshAuthArgs): {
   return { host: args.host, username: args.username, auth };
 }
 
+// ── Script runner — spawns whitelisted shell scripts under perch-src/scripts/.
+//    Args dict becomes uppercase env vars (whitelisted [A-Z_]+ keys, scalar values).
+import { spawn } from "node:child_process";
+import * as path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const SCRIPT_DIR = path.resolve(__dirname, "../../scripts");
+const SCRIPT_WHITELIST = new Set([
+  "access-top-ips.sh",
+  "access-summary.sh",
+  "wp-errors.sh",
+  "php-errors.sh",
+  "mysql-errors.sh",
+  "server-pulse.sh",
+]);
+
+async function runScript(scriptName: string, args: Record<string, unknown> = {}, timeoutMs = 30_000): Promise<{ output: string; ok: boolean }> {
+  if (!SCRIPT_WHITELIST.has(scriptName)) {
+    throw new Error(`Script not whitelisted: ${scriptName}`);
+  }
+  const env: Record<string, string> = {};
+  for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v;
+  for (const [k, v] of Object.entries(args)) {
+    // Auto-uppercase to ENV style — accept both {domain} and {DOMAIN}
+    const K = k.toUpperCase();
+    if (!/^[A-Z][A-Z0-9_]{0,31}$/.test(K)) continue;
+    if (typeof v !== "string" && typeof v !== "number") continue;
+    const sv = String(v);
+    if (sv.length > 200 || !/^[A-Za-z0-9._-]+$/.test(sv)) continue;
+    env[K] = sv;
+  }
+  return new Promise((resolve) => {
+    const proc = spawn("bash", [path.join(SCRIPT_DIR, scriptName)], { env, cwd: "/tmp" });
+    let out = "";
+    let err = "";
+    proc.stdout.on("data", (d) => { out += d.toString(); });
+    proc.stderr.on("data", (d) => { err += d.toString(); });
+    const timer = setTimeout(() => { proc.kill("SIGKILL"); resolve({ output: "Script timed out", ok: false }); }, timeoutMs);
+    proc.on("close", (code) => {
+      clearTimeout(timer);
+      resolve({ output: (out + err).trim(), ok: code === 0 });
+    });
+  });
+}
+
 // Tool dispatcher — kept terse and verifiable.
 const HANDLERS: Record<string, (args: Record<string, unknown>) => Promise<unknown>> = {
   // ── Brain
   "brain": async () => getBrain(brain),
   "brain.history": async (a) => getWebappHistory(brain, String(a.domain || "")),
+
+  // ── Read-only server intelligence (whitelisted shell scripts)
+  "access_top_ips": async (a) => await runScript("access-top-ips.sh", { DOMAIN: String(a.domain || ""), COUNT: a.count ? String(a.count) : "10" }),
+  "access_summary": async (a) => await runScript("access-summary.sh", { DOMAIN: String(a.domain || "") }),
+  "wp_errors":      async (a) => await runScript("wp-errors.sh", a.domain ? { DOMAIN: String(a.domain) } : {}),
+  "php_errors":     async () => await runScript("php-errors.sh", {}),
+  "mysql_errors":   async () => await runScript("mysql-errors.sh", {}),
+  "server_pulse":   async () => await runScript("server-pulse.sh", {}),
 
   // ── Audit log (used by fix-server.py to record shell-side actions)
   "log_action": async (a) => {
