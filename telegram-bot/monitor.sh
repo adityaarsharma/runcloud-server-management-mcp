@@ -139,6 +139,28 @@ SESSEOF
     '{"chat_id":$c,"text":$t,"parse_mode":"Markdown","reply_markup":$k}' \
   | curl -sf -X POST -K <(printf '%s\n' "$url_config") \
       -H 'Content-Type: application/json' -d @- > /dev/null 2>&1 || true
+
+  # ── Slack mirror — fires when SLACK_WEBHOOK_URL is set ────────────────────
+  if [ -n "${SLACK_WEBHOOK_URL:-}" ]; then
+    local sev_color
+    case "$severity" in
+      critical) sev_color="#dc2626" ;;
+      warning)  sev_color="#f59e0b" ;;
+      *)        sev_color="#3b82f6" ;;
+    esac
+    local slack_text
+    slack_text=$(printf "%s %s — %s\n%s\n\n_Server: %s · %s_" \
+      "$emoji" "$SERVER_NAME" "$title" "$body" "$SERVER_NAME" "$timestamp")
+    jq -n \
+      --arg c "$sev_color" \
+      --arg t "$slack_text" \
+      --arg fb "$emoji $SERVER_NAME — $title" \
+      '{ "attachments": [{ "color": $c, "fallback": $fb, "blocks": [
+          { "type": "section", "text": { "type": "mrkdwn", "text": $t } }
+        ]}]}' \
+    | curl -sf -X POST -H 'Content-Type: application/json' \
+        -d @- "$SLACK_WEBHOOK_URL" > /dev/null 2>&1 || true
+  fi
 }
 
 # Common button sets

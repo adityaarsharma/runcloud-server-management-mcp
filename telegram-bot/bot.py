@@ -329,6 +329,17 @@ def handle_callback(cb):
         edit(mid, '✅ Alert acknowledged.', chat_id=chat_id)
         return
 
+    # perch:ack — same as ignore but matches monitor.sh\'s newer callback_data
+    if data == 'perch:ack':
+        edit(mid, '🪶 Alert acknowledged. Perch session ended.', chat_id=chat_id)
+        # Best-effort: clear /tmp/perch_session.json if present (set by monitor.sh on alert)
+        try:
+            import os as _os
+            _os.remove('/tmp/perch_session.json')
+        except Exception:
+            pass
+        return
+
     # Mute callbacks (mute_30m, mute_1h, mute_4h, mute_24h)
     if data in MUTE_CALLBACKS:
         global muted_until
