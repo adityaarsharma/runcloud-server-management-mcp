@@ -43,7 +43,8 @@
     "setup": "bash scripts/setup.sh",
     "update": "bash scripts/update.sh",
     "vault": "tsx scripts/perch-vault.ts",
-    "import-runcloud": "tsx scripts/import-runcloud-servers.ts"
+    "import-runcloud": "tsx scripts/import-runcloud-servers.ts",
+    "seed-from-server": "tsx scripts/seed-from-server.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",

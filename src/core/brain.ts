@@ -16,10 +16,12 @@ export interface ServerRecord {
   baseline?: Record<string, unknown>; // stored as JSON
 }
 
+export type WebappType = "wordpress" | "laravel" | "node" | "n8n" | "docker" | "static" | "unknown";
+
 export interface WebappRecord {
   server_id: number;
   domain: string;
-  type?: "wordpress" | "laravel" | "node" | "static" | "unknown";
+  type?: WebappType;
   webroot?: string;
   php_version?: string;
   system_user?: string;
