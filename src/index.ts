@@ -9,6 +9,8 @@ import { Client as SSHClient } from "ssh2";
 import { initBrain, logProblem, getBrain, getWebappHistory, incrementKnowledge } from "./core/brain.js";
 import { formatPerchResponse } from "./core/gateway.js";
 import { sshExec as sshExecEnhanced, wpCli, detectWebappType } from "./core/ssh-enhanced.js";
+import { vaultPut, vaultGet, vaultList, vaultDelete, vaultExists } from "./core/vault.js";
+import { safeForOutput, safeTruncate } from "./core/redact.js";
 import { auditDatabase, cleanTransients } from "./modules/wordpress/db.js";
 import { auditPlugins, updatePlugin, deactivatePlugin } from "./modules/wordpress/plugins.js";
 import { auditSecurity } from "./modules/wordpress/security.js";
@@ -2056,6 +2058,48 @@ const tools = [
     },
   },
 
+  // ── VAULT (encrypted credential storage) ─────────────────────────────────
+  {
+    name: "perch_vault_put",
+    description: "Store an encrypted credential in the Perch vault. Encrypted with AES-256-GCM using PERCH_MASTER_KEY env var. Use for SSH passwords, API keys, etc. Never logs the value.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id:    { type: "string", description: "Vault key (e.g. 'ssh:production-1' or 'runcloud:apikey')" },
+        value: { type: "string", description: "Secret value to encrypt and store" },
+        label: { type: "string", description: "Optional human label" },
+      },
+      required: ["id", "value"],
+    },
+  },
+  {
+    name: "perch_vault_get",
+    description: "Retrieve a decrypted credential from the Perch vault by ID. Requires PERCH_MASTER_KEY env var. WARNING: returned plaintext is redacted in logs but visible in tool response.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Vault key to retrieve" },
+      },
+      required: ["id"],
+    },
+  },
+  {
+    name: "perch_vault_list",
+    description: "List all credential IDs stored in the Perch vault. Does not return the values themselves — just the keys.",
+    inputSchema: { type: "object", properties: {}, required: [] },
+  },
+  {
+    name: "perch_vault_delete",
+    description: "Delete a credential from the Perch vault by ID.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string" },
+      },
+      required: ["id"],
+    },
+  },
+
   // ── WORDPRESS: ERROR DIAGNOSIS ────────────────────────────────────────────
   {
     name: "perch_wp_errors",
@@ -3393,6 +3437,30 @@ ${clearCmd}`,
         break;
       }
 
+      // ── PERCH: VAULT ────────────────────────────────────────────────────
+
+      case "perch_vault_put": {
+        vaultPut(a.id as string, a.value as string, a.label as string | undefined);
+        result = { ok: true, id: a.id, message: "Credential stored encrypted." };
+        break;
+      }
+      case "perch_vault_get": {
+        const v = vaultGet(a.id as string);
+        result = v === null
+          ? { ok: false, error: `No vault entry: ${a.id}` }
+          : { ok: true, id: a.id, value: v };
+        break;
+      }
+      case "perch_vault_list": {
+        result = { ok: true, exists: vaultExists(), entries: vaultList() };
+        break;
+      }
+      case "perch_vault_delete": {
+        const deleted = vaultDelete(a.id as string);
+        result = { ok: deleted, id: a.id, message: deleted ? "Deleted." : "Not found." };
+        break;
+      }
+
       // ── PERCH: WORDPRESS ERROR DIAGNOSIS ────────────────────────────────
 
       case "perch_wp_errors": {
@@ -3425,9 +3493,15 @@ ${clearCmd}`,
     };
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
-    const safeMsg = msg.replace(/Bearer\s+\S+/gi, "Bearer [REDACTED]").replace(/password[=:]\s*\S+/gi, "password=[REDACTED]");
+    // Centralized redaction — catches Bearer, password, PEM keys, RunCloud/Telegram/Slack/AWS/GitHub tokens,
+    // wp-config secrets, env-var-style secrets, and shortens /home/{user}/... paths.
+    const safeMsg = safeTruncate(safeForOutput(msg), 1500);
+    // Detect missing-credential scenarios and produce a friendly hint.
+    const hint = /environment variable is not set|RUNCLOUD_API_KEY|PERCH_MASTER_KEY|password is required|privateKey/i.test(msg)
+      ? "\n\nHint: Perch needs SSH credentials or an API key. Store them with /perch_vault_put or set the env var, then retry."
+      : "";
     return {
-      content: [{ type: "text", text: `Error: ${safeMsg}` }],
+      content: [{ type: "text", text: `Error: ${safeMsg}${hint}` }],
       isError: true,
     };
   }
