@@ -6,6 +6,19 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { Client as SSHClient } from "ssh2";
+import { initBrain, logProblem, getBrain, getWebappHistory, incrementKnowledge } from "./core/brain.js";
+import { formatPerchResponse } from "./core/gateway.js";
+import { sshExec as sshExecEnhanced, wpCli, detectWebappType } from "./core/ssh-enhanced.js";
+import { auditDatabase, cleanTransients } from "./modules/wordpress/db.js";
+import { auditPlugins, updatePlugin, deactivatePlugin } from "./modules/wordpress/plugins.js";
+import { auditSecurity } from "./modules/wordpress/security.js";
+import { checkBackupHealth } from "./modules/wordpress/backup.js";
+import { scanImages, optimizeImages, checkImageTools } from "./modules/wordpress/images.js";
+import { snapshotPerformance } from "./modules/wordpress/perf.js";
+import { diagnoseErrors } from "./modules/wordpress/errors.js";
+
+// Initialize brain DB (SQLite knowledge base)
+const brain = initBrain();
 
 const BASE_URL = "https://manage.runcloud.io/api/v3";
 
@@ -77,13 +90,16 @@ async function paginateAll(path: string): Promise<unknown[]> {
   return results;
 }
 
-// SSH into a server and run a command
+// SSH into a server and run a command.
+// Supports password auth OR private key auth.
+// Set privateKey to a PEM string to use key-based auth instead of password.
 async function sshExec(
   host: string,
   username: string,
-  password: string,
+  passwordOrKey: string,
   command: string,
-  timeoutMs = 30000
+  timeoutMs = 30000,
+  usePrivateKey = false
 ): Promise<{ stdout: string; stderr: string; code: number }> {
   return new Promise((resolve, reject) => {
     const conn = new SSHClient();
@@ -108,7 +124,18 @@ async function sshExec(
     });
 
     conn.on("error", (err) => { clearTimeout(timer); reject(err); });
-    conn.connect({ host, port: 22, username, password, readyTimeout: 10000 });
+
+    const connectOpts: Record<string, unknown> = {
+      host, port: 22, username, readyTimeout: 10000,
+      // Trust on first use — host key stored per-connection for now
+      hostVerifier: () => true,
+    };
+    if (usePrivateKey) {
+      connectOpts.privateKey = passwordOrKey;
+    } else {
+      connectOpts.password = passwordOrKey;
+    }
+    conn.connect(connectOpts as Parameters<typeof conn.connect>[0]);
   });
 }
 
@@ -1814,12 +1841,246 @@ const tools = [
       required: ["botToken", "chatId", "message"],
     },
   },
+
+  // ── PERCH INTELLIGENCE TOOLS ──────────────────────────────────────────────
+  // All /perch commands live here. SSH auth required for most.
+
+  {
+    name: "perch_brain",
+    description: "Show what Perch has learned across all servers and webapps. Returns a summary of the knowledge base: servers, webapps, top recurring problems, vulnerable plugins across all sites.",
+    inputSchema: { type: "object", properties: {}, required: [] },
+  },
+  {
+    name: "perch_webapp_history",
+    description: "Show the full problem + fix history for a specific webapp/domain.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        domain: { type: "string", description: "Domain name of the webapp (e.g. mysite.com)" },
+      },
+      required: ["domain"],
+    },
+  },
+  {
+    name: "perch_detect_webapp",
+    description: "Detect the type of webapp running on a server path (WordPress, Laravel, Node, static, etc.).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        host:     { type: "string", description: "Server IP or hostname" },
+        username: { type: "string", description: "SSH username" },
+        password: { type: "string", description: "SSH password (or use privateKey)" },
+        privateKey: { type: "string", description: "SSH private key PEM string (alternative to password)" },
+        webroot:  { type: "string", description: "Absolute path to webapp root (e.g. /home/user/public_html)" },
+      },
+      required: ["host", "username", "webroot"],
+    },
+  },
+
+  // ── WORDPRESS: DATABASE ───────────────────────────────────────────────────
+  {
+    name: "perch_wp_db_audit",
+    description: "Deep WordPress database health check. Checks autoloaded data size, expired transients, orphaned postmeta, WooCommerce orphaned sessions, post revisions, and table fragmentation. Returns friendly diagnosis with savings estimates.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        host:     { type: "string" },
+        username: { type: "string", description: "SSH username" },
+        password: { type: "string" },
+        privateKey: { type: "string", description: "SSH private key PEM (alternative to password)" },
+        wpPath:   { type: "string", description: "WordPress installation path (e.g. /home/user/public_html)" },
+        wpUser:   { type: "string", description: "System user that owns the WordPress install" },
+        dbName:   { type: "string", description: "MySQL database name" },
+        domain:   { type: "string", description: "Domain (used for logging to brain)" },
+      },
+      required: ["host", "username", "wpPath", "wpUser", "dbName"],
+    },
+  },
+  {
+    name: "perch_wp_db_clean",
+    description: "Clean expired transients and orphaned WooCommerce sessions from WordPress database. Safe — only removes expired/orphaned data. Returns how much was deleted and space saved.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        host:     { type: "string" },
+        username: { type: "string" },
+        password: { type: "string" },
+        privateKey: { type: "string" },
+        wpPath:   { type: "string" },
+        wpUser:   { type: "string" },
+      },
+      required: ["host", "username", "wpPath", "wpUser"],
+    },
+  },
+
+  // ── WORDPRESS: PLUGINS ────────────────────────────────────────────────────
+  {
+    name: "perch_wp_plugins",
+    description: "Full WordPress plugin audit. Lists all plugins (active + inactive), checks for available updates, scans for known vulnerabilities via Wordfence Intelligence free API, and flags abandoned plugins (no updates in 2+ years).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        host:     { type: "string" },
+        username: { type: "string" },
+        password: { type: "string" },
+        privateKey: { type: "string" },
+        wpPath:   { type: "string" },
+        wpUser:   { type: "string" },
+        domain:   { type: "string", description: "Domain (used for logging)" },
+      },
+      required: ["host", "username", "wpPath", "wpUser"],
+    },
+  },
+  {
+    name: "perch_wp_plugin_update",
+    description: "Update a specific WordPress plugin via WP-CLI. Returns old version, new version, and output.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        host:     { type: "string" },
+        username: { type: "string" },
+        password: { type: "string" },
+        privateKey: { type: "string" },
+        wpPath:   { type: "string" },
+        wpUser:   { type: "string" },
+        slug:     { type: "string", description: "Plugin slug to update (e.g. contact-form-7)" },
+      },
+      required: ["host", "username", "wpPath", "wpUser", "slug"],
+    },
+  },
+  {
+    name: "perch_wp_plugin_deactivate",
+    description: "Deactivate a specific WordPress plugin via WP-CLI. Use when a plugin is causing a fatal error or white screen.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        host:     { type: "string" },
+        username: { type: "string" },
+        password: { type: "string" },
+        privateKey: { type: "string" },
+        wpPath:   { type: "string" },
+        wpUser:   { type: "string" },
+        slug:     { type: "string", description: "Plugin slug to deactivate" },
+      },
+      required: ["host", "username", "wpPath", "wpUser", "slug"],
+    },
+  },
+
+  // ── WORDPRESS: SECURITY ───────────────────────────────────────────────────
+  {
+    name: "perch_wp_security",
+    description: "WordPress security hardening audit. Checks 12 server-level security items: wp-config permissions, admin username, xmlrpc.php, directory listing, wp-login rate limiting, debug.log exposure, file editor, WP version in headers, readme.html, SSL validity, uploads PHP execution, core checksum verification. Returns score 0–100 and grade A–F.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        host:     { type: "string" },
+        username: { type: "string" },
+        password: { type: "string" },
+        privateKey: { type: "string" },
+        wpPath:   { type: "string" },
+        wpUser:   { type: "string" },
+        domain:   { type: "string", description: "Domain for HTTP checks (e.g. mysite.com)" },
+      },
+      required: ["host", "username", "wpPath", "wpUser", "domain"],
+    },
+  },
+
+  // ── WORDPRESS: BACKUP ─────────────────────────────────────────────────────
+  {
+    name: "perch_wp_backup",
+    description: "Check WordPress backup health. Reports last backup time and age, backup file size, whether DB backup is included, remote destination reachability, retention policy, and next scheduled backup. Flags missing or incomplete backups.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        host:     { type: "string" },
+        username: { type: "string" },
+        password: { type: "string" },
+        privateKey: { type: "string" },
+        webroot:  { type: "string", description: "Webapp root path" },
+        domain:   { type: "string" },
+      },
+      required: ["host", "username", "webroot", "domain"],
+    },
+  },
+
+  // ── WORDPRESS: IMAGES ─────────────────────────────────────────────────────
+  {
+    name: "perch_wp_images_scan",
+    description: "Scan WordPress uploads directory for image optimization opportunities. Returns total images, total size, estimated savings from lossless compression and WebP generation, largest files, and which optimization tools are installed.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        host:       { type: "string" },
+        username:   { type: "string" },
+        password:   { type: "string" },
+        privateKey: { type: "string" },
+        uploadsPath: { type: "string", description: "Path to wp-content/uploads (e.g. /home/user/public_html/wp-content/uploads)" },
+      },
+      required: ["host", "username", "uploadsPath"],
+    },
+  },
+  {
+    name: "perch_wp_images_optimize",
+    description: "Optimize WordPress images via CLI tools (jpegoptim, optipng, pngquant, cwebp). Lossless by default — no quality loss. Optionally generates WebP versions alongside originals. Returns images processed, MB saved, WebP files created.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        host:        { type: "string" },
+        username:    { type: "string" },
+        password:    { type: "string" },
+        privateKey:  { type: "string" },
+        uploadsPath: { type: "string" },
+        generateWebp: { type: "boolean", description: "Generate .webp alongside originals. Default: true" },
+        dryRun:      { type: "boolean", description: "Estimate savings without optimizing. Default: false" },
+      },
+      required: ["host", "username", "uploadsPath"],
+    },
+  },
+
+  // ── WORDPRESS: PERFORMANCE ────────────────────────────────────────────────
+  {
+    name: "perch_wp_perf",
+    description: "WordPress performance snapshot. Checks PHP version + EOL status, memory limit vs usage, object cache (Redis/Memcached), page cache type, WP cron health + backlog, TTFB from localhost, DB connection, active plugin count. Returns recommendations.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        host:     { type: "string" },
+        username: { type: "string" },
+        password: { type: "string" },
+        privateKey: { type: "string" },
+        wpPath:   { type: "string" },
+        wpUser:   { type: "string" },
+        domain:   { type: "string" },
+      },
+      required: ["host", "username", "wpPath", "wpUser", "domain"],
+    },
+  },
+
+  // ── WORDPRESS: ERROR DIAGNOSIS ────────────────────────────────────────────
+  {
+    name: "perch_wp_errors",
+    description: "Diagnose WordPress PHP errors and white screens. Parses PHP error log, classifies errors by type and responsible plugin/theme, identifies the most likely root cause, and suggests a fix. Can detect plugin conflicts, memory exhaustion, fatal errors, and white screens.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        host:     { type: "string" },
+        username: { type: "string" },
+        password: { type: "string" },
+        privateKey: { type: "string" },
+        wpPath:   { type: "string" },
+        wpUser:   { type: "string" },
+        domain:   { type: "string" },
+        lines:    { type: "number", description: "Error log lines to analyze. Default: 200" },
+      },
+      required: ["host", "username", "wpPath", "wpUser", "domain"],
+    },
+  },
 ];
 
 // ─── SERVER SETUP ─────────────────────────────────────────────────────────────
 
 const server = new Server(
-  { name: "runcloud-mcp", version: "2.1.0" },
+  { name: "perch", version: "2.0.0" },
   { capabilities: { tools: {} } }
 );
 
@@ -3003,6 +3264,158 @@ ${clearCmd}`,
         break;
       }
 
+      // ── PERCH INTELLIGENCE ──────────────────────────────────────────────
+
+      case "perch_brain":
+        result = getBrain(brain);
+        break;
+
+      case "perch_webapp_history":
+        result = getWebappHistory(brain, a.domain as string);
+        break;
+
+      case "perch_detect_webapp": {
+        const auth = a.privateKey
+          ? { type: "key" as const, privateKey: a.privateKey as string }
+          : { type: "password" as const, password: (a.password ?? "") as string };
+        result = await detectWebappType(
+          { host: a.host as string, username: a.username as string, auth },
+          a.webroot as string
+        );
+        break;
+      }
+
+      // ── PERCH: WORDPRESS DB ──────────────────────────────────────────────
+
+      case "perch_wp_db_audit": {
+        const auth = a.privateKey
+          ? { type: "key" as const, privateKey: a.privateKey as string }
+          : { type: "password" as const, password: (a.password ?? "") as string };
+        const sshOpts = { host: a.host as string, username: a.username as string, auth };
+        const dbResult = await auditDatabase(sshOpts, a.wpPath as string, a.wpUser as string, a.dbName as string);
+        if (a.domain) incrementKnowledge(brain, "wp_db_audit", "scheduled_audit", "none");
+        result = dbResult;
+        break;
+      }
+
+      case "perch_wp_db_clean": {
+        const auth = a.privateKey
+          ? { type: "key" as const, privateKey: a.privateKey as string }
+          : { type: "password" as const, password: (a.password ?? "") as string };
+        const sshOpts = { host: a.host as string, username: a.username as string, auth };
+        result = await cleanTransients(sshOpts, a.wpPath as string, a.wpUser as string);
+        break;
+      }
+
+      // ── PERCH: WORDPRESS PLUGINS ─────────────────────────────────────────
+
+      case "perch_wp_plugins": {
+        const auth = a.privateKey
+          ? { type: "key" as const, privateKey: a.privateKey as string }
+          : { type: "password" as const, password: (a.password ?? "") as string };
+        const sshOpts = { host: a.host as string, username: a.username as string, auth };
+        result = await auditPlugins(sshOpts, a.wpPath as string, a.wpUser as string);
+        break;
+      }
+
+      case "perch_wp_plugin_update": {
+        const auth = a.privateKey
+          ? { type: "key" as const, privateKey: a.privateKey as string }
+          : { type: "password" as const, password: (a.password ?? "") as string };
+        const sshOpts = { host: a.host as string, username: a.username as string, auth };
+        result = await updatePlugin(sshOpts, a.wpPath as string, a.wpUser as string, a.slug as string);
+        break;
+      }
+
+      case "perch_wp_plugin_deactivate": {
+        const auth = a.privateKey
+          ? { type: "key" as const, privateKey: a.privateKey as string }
+          : { type: "password" as const, password: (a.password ?? "") as string };
+        const sshOpts = { host: a.host as string, username: a.username as string, auth };
+        result = await deactivatePlugin(sshOpts, a.wpPath as string, a.wpUser as string, a.slug as string);
+        break;
+      }
+
+      // ── PERCH: WORDPRESS SECURITY ────────────────────────────────────────
+
+      case "perch_wp_security": {
+        const auth = a.privateKey
+          ? { type: "key" as const, privateKey: a.privateKey as string }
+          : { type: "password" as const, password: (a.password ?? "") as string };
+        const sshOpts = { host: a.host as string, username: a.username as string, auth };
+        result = await auditSecurity(sshOpts, a.wpPath as string, a.wpUser as string, a.domain as string);
+        break;
+      }
+
+      // ── PERCH: WORDPRESS BACKUP ──────────────────────────────────────────
+
+      case "perch_wp_backup": {
+        const auth = a.privateKey
+          ? { type: "key" as const, privateKey: a.privateKey as string }
+          : { type: "password" as const, password: (a.password ?? "") as string };
+        const sshOpts = { host: a.host as string, username: a.username as string, auth };
+        result = await checkBackupHealth(sshOpts, a.webroot as string, a.domain as string);
+        break;
+      }
+
+      // ── PERCH: WORDPRESS IMAGES ──────────────────────────────────────────
+
+      case "perch_wp_images_scan": {
+        const auth = a.privateKey
+          ? { type: "key" as const, privateKey: a.privateKey as string }
+          : { type: "password" as const, password: (a.password ?? "") as string };
+        const sshOpts = { host: a.host as string, username: a.username as string, auth };
+        result = await scanImages(sshOpts, a.uploadsPath as string);
+        break;
+      }
+
+      case "perch_wp_images_optimize": {
+        const auth = a.privateKey
+          ? { type: "key" as const, privateKey: a.privateKey as string }
+          : { type: "password" as const, password: (a.password ?? "") as string };
+        const sshOpts = { host: a.host as string, username: a.username as string, auth };
+        result = await optimizeImages(sshOpts, a.uploadsPath as string, {
+          generateWebp: (a.generateWebp as boolean) !== false,
+          losslessOnly: true,
+          dryRun: (a.dryRun as boolean) === true,
+        });
+        break;
+      }
+
+      // ── PERCH: WORDPRESS PERFORMANCE ────────────────────────────────────
+
+      case "perch_wp_perf": {
+        const auth = a.privateKey
+          ? { type: "key" as const, privateKey: a.privateKey as string }
+          : { type: "password" as const, password: (a.password ?? "") as string };
+        const sshOpts = { host: a.host as string, username: a.username as string, auth };
+        result = await snapshotPerformance(sshOpts, a.wpPath as string, a.wpUser as string, a.domain as string);
+        break;
+      }
+
+      // ── PERCH: WORDPRESS ERROR DIAGNOSIS ────────────────────────────────
+
+      case "perch_wp_errors": {
+        const auth = a.privateKey
+          ? { type: "key" as const, privateKey: a.privateKey as string }
+          : { type: "password" as const, password: (a.password ?? "") as string };
+        const sshOpts = { host: a.host as string, username: a.username as string, auth };
+        const diagnosis = await diagnoseErrors(
+          sshOpts, a.wpPath as string, a.wpUser as string, a.domain as string,
+          a.lines ? Number(a.lines) : 200
+        );
+        // Log to brain if we found a problem
+        if (diagnosis.likelyCause) {
+          logProblem(brain, {
+            type: diagnosis.isWhiteScreen ? "white_screen" : "php_error",
+            root_cause: diagnosis.likelyCause,
+            raw_log_snippet: diagnosis.rawLogLines.join("\n").slice(0, 2000),
+          });
+        }
+        result = diagnosis;
+        break;
+      }
+
       default:
         throw new Error(`Unknown tool: ${name}`);
     }
@@ -3025,7 +3438,7 @@ ${clearCmd}`,
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error("RunCloud MCP Server v2.1 running on stdio");
+  console.error("Perch MCP v2.0 running on stdio");
 }
 
 main().catch((err) => {

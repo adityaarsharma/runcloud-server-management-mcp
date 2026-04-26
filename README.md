@@ -2,15 +2,15 @@
 
 # 🪶 Perch
 
-### Servers under one wing.
+### Server intelligence layer. Watches, diagnoses, heals.
 
-**The Telegram bot + Claude Code plugin that makes RunCloud server management as easy as Vercel.**
+**The Claude Code plugin + Telegram bot that makes server management feel like having a smart engineer on call — free, forever, on your own server.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](LICENSE)
 [![Always Free](https://img.shields.io/badge/Always-Free-brightgreen?style=flat-square)]()
 [![RunCloud](https://img.shields.io/badge/RunCloud-API%20v3-0066CC?style=flat-square)](https://runcloud.io)
 [![MCP](https://img.shields.io/badge/Model%20Context%20Protocol-Compatible-blueviolet?style=flat-square)](https://modelcontextprotocol.io)
-[![Tools](https://img.shields.io/badge/Tools-135-orange?style=flat-square)](#full-tool-catalog-135-tools)
+[![WordPress](https://img.shields.io/badge/WordPress-Expert%20Module-21759B?style=flat-square)](https://wordpress.org)
 
 </div>
 
@@ -18,865 +18,384 @@
 
 ## What is Perch?
 
-Perch is a **Telegram bot + Claude Code plugin** that gives agencies, freelancers, and developers a phone-first control surface for RunCloud-managed servers.
+Perch is a **self-hosted server intelligence layer** that lives on your server and talks to you via Telegram (or Slack).
 
-Think Vercel-grade DX, but on your own VPS. On Telegram. Free forever.
+It doesn't just tell you things are broken. It tells you **why**, what it already did about it, and what you should do next — in plain English.
 
 ```
-🪶 Perch Alert — production-1 (95.216.156.89)
+🪶 Perch — production-1
 
-❌ nginx-rc is down
-💾 Disk: 87% full
-🔄 PHP-FPM: restarted 3x in last hour
+nginx had a moment just now. I checked — a config snippet
+added via RunCloud had a small typo on line 47.
 
-[🔧 Smart Fix]  [📊 Status]
-[🌐 Nginx]      [💾 Disk]
-[🔇 Mute 1h]    [✅ Ack]
+I've restarted nginx and the site is back up (took 8 seconds).
+
+Want me to fix that snippet so this doesn't happen again?
+
+[✅ Yes, fix it]  [📄 Show me]  [🔇 Not now]
 ```
 
-Tap `🔧 Smart Fix`. The fix runs. The result lands in your chat. Done.
+That's it. Not a raw error dump. Not an alarming CAPS alert. A friendly engineer who knows your server.
 
 ---
 
 ## Why Perch Exists
 
-Running production servers today is a mess of bad options:
-
 | Option | Reality |
 |--------|---------|
-| **Direct SSH** | Fast for experts, terrifying for everyone else. One typo wipes a client site. No backups. No rollback. No audit. |
-| **Vercel / Render / Railway** | Beautiful UX, but locked in, expensive at scale, and you can't run WordPress, Laravel queues, n8n, or anything custom without paying $$$ per service. |
-| **cPanel / Plesk** | Bloated, ugly, slow, expensive licenses, dated UX. |
-| **Raw cloud** (DO, Hetzner, AWS) | Full control, zero guardrails. You're the sysadmin now. |
+| **Direct SSH** | Fast for experts, terrifying for everyone else. One typo can wipe a client site. No audit trail. |
+| **Cloudways / Kinsta** | Great UX, but $30–100/month per server. Locked in. Can't run WordPress + n8n + Node on the same box. |
+| **RunCloud** | Excellent server panel. But it manages — it doesn't *watch*, *diagnose*, or *heal*. |
+| **cPanel/Plesk** | Bloated, expensive, ugly. |
+| **Perch** | Intelligence layer on top of RunCloud (or bare VPS). Watches everything. Explains everything. Fixes common things. Free forever. |
 
-**There's no middle path that gives you Vercel-grade DX on your own VPS — until you combine [RunCloud](https://runcloud.io) (the GUI + safety layer) with Perch (the on-the-go control).**
-
-### Why RunCloud, Not Direct SSH
-
-RunCloud is the safety layer. It enforces good defaults so mistakes stay scoped:
-
-| Direct SSH | RunCloud |
-|------------|----------|
-| One typo can wipe production | Web app isolation, can't `rm -rf /` from the panel |
-| No backups unless you build them | One-click backups + S3/Wasabi integration |
-| Manual nginx configs (hours to debug) | Pre-built `nginx-rc` + safe `extra.d/` for customization |
-| Manual SSL renewals or break things | Auto-renewing Let's Encrypt with one toggle |
-| Manual PHP version juggling | Switch PHP versions per app via dropdown |
-| No GUI for clients | Read-only client access to specific apps |
-| Audit trail = your shell history | Built-in activity log |
-| Adding a webapp = 30+ commands | Click "New Web App", done |
-
-**Why not Vercel?** Because:
-- WordPress, Laravel queues, n8n, MCPs, Python workers — all run native on RunCloud
-- $5–$20/month VPS instead of $200+/month per service
-- Your data stays on your hardware (Hetzner, DigitalOcean, AWS — your pick)
-- No vendor lock-in, no cold starts, no per-request pricing
-
-### Why a Telegram Bot
-
-You don't always have your laptop. The 4 a.m. alert. The dinner-table client emergency. The "is the site up?" question while in transit.
-
-Perch lives where you already are — on your phone — and gives you:
-
-- **Real-time alerts** when nginx, PHP, MCPs, or n8n go down
-- **One-tap fixes** from inside the alert message
-- **Natural language** queries: *"is the store site up?"* → live status
-- **Multi-server view** across every client environment
-- **Safe diagnostics** (disk, ports, logs) without ever opening SSH
+**Perch gives you the peace of mind you'd pay $50/month for — on your own $5/month VPS.**
 
 ---
 
-## Perch is Always Free
-
-No Pro tier. No license keys. No paywall. Ever.
-
-Perch is a community tool for the RunCloud ecosystem. Built and maintained by [Aditya Sharma](https://adityaarsharma.com).
-
-If you want to support the project: ⭐ star the repo, share it with one fellow agency owner, or [say hi on Telegram](https://t.me/adityaarsharma).
-
----
-
-## Who Perch is For
-
-| Audience | Use case |
-|----------|----------|
-| **Web agencies (5–50 client sites)** | On-call coverage without a 24/7 sysadmin. Delegate server access without giving SSH keys. Charge clients for hosting/maintenance retainers with confidence. |
-| **Solo devs / freelancers** | Run your own SaaS on a VPS. Get phone alerts when your stuff breaks at 3 a.m. without spinning up Datadog. |
-| **Small WordPress hosts** | Manage 50+ sites from RunCloud with a multi-server overview that fits in your pocket. |
-
----
-
-## What Perch Does — Three Layers
-
-| Layer | What It Does | Requires |
-|-------|-------------|----------|
-| **🪶 Telegram Bot** (Alert + Control Layer) | Automated alerts every 10 minutes, inline fix buttons, 15+ commands for remote server control from your phone. | Telegram bot token |
-| **🛠️ RunCloud API** (Control Plane) | Full server management — web apps, databases, SSL, domains, firewall, deployments, cron jobs, and more. 128 tools. | RunCloud API key |
-| **🩺 SSH Monitoring + Self-Healing** (Observability) | Real-time health checks, auto-fix broken services, kill orphan processes, clean disk space. 7 tools. | SSH access only (any Linux server) |
-
-**All three layers work independently.** Use just one, or combine all three. No RunCloud account needed for SSH monitoring. No SSH needed for RunCloud API tools. No Claude needed for the Telegram bot.
-
----
-
-## Quick Example
-
-> *"Set up a WordPress site on my production server with PHP 8.2, create the database, system user, and install SSL."*
-
-Six API calls executed in the right order, with the right parameters. Done.
-
-> *"Is anything broken across all my servers?"*
-
-Multi-server health scan in 4 seconds. List of affected sites with one-tap fix buttons.
-
-> *"Disk on store.posimyth.com is filling up — show me the biggest log files and clear the old ones."*
-
-Diagnostic + safe cleanup, dry-run shown first, you confirm, it executes.
-
----
-
-
-## Security
-
-Server management tools demand strict security. Here is how every layer is locked down.
-
-### Zero Third-Party Relay
-
-- **All API traffic** goes direct HTTPS to `manage.runcloud.io` - no proxy, no relay, no middleware
-- **All SSH traffic** goes direct to your server - no tunnel service, no intermediary
-- **Telegram bot** communicates directly with the Telegram Bot API from your server
-
-### Credential Protection
-
-- **RunCloud API key** stored only in your local MCP config file - never transmitted anywhere except direct to RunCloud
-- **SSH credentials** passed per-call only - never stored, never cached, never written to disk by Perch
-- **Telegram bot token** stored in `.env` on your server with `chmod 600` permissions
-
-### Input Validation & Injection Prevention
-
-- **Shell injection protection** - all SSH inputs sanitized through `shellEscape`, `validatePath`, and `validateServiceName` before execution
-- **Numeric parameter validation** - timeouts, line counts, and port numbers are bounded to safe ranges
-- **SSH output truncated at 1MB** - prevents memory exhaustion from runaway command output
-
-### Error Sanitization
-
-- **Bearer tokens auto-redacted** from all error messages
-- **Passwords auto-redacted** from all error output
-- Error responses never leak credentials, even on unexpected failures
-
-### Network Isolation
-
-- **Fix server** (`fix-server.py`) binds to `127.0.0.1:3011` only - not accessible from outside the server
-- **MCP processes** bind to `127.0.0.1` behind nginx with Bearer token authentication when deployed remotely
-- **Telegram bot** validates every incoming message against your `TELEGRAM_CHAT_ID` - ignores all other users
-
-### Access Control
-
-- `.env` files set to `chmod 600` (owner read/write only)
-- Failed authentication attempts are logged
-- RunCloud API key scope is full read/write - protect the machine where Perch is configured
-
----
-
-## What Can You Do With This?
-
-### For Non-Technical Users
-
-- **Ask about your servers in plain English** -"How's my server doing?" "Is anything broken?" "Which sites need SSL renewal?"
-- **Fix problems without touching a terminal** - issues are detected and repaired automatically
-- **Get Telegram alerts on your phone** - know when something goes wrong, tap a button to fix it
-- **Set up WordPress sites in one sentence** - domain, database, user, SSL - all created automatically
-- **Monitor all servers from one place** - health scores, disk usage, memory - across every server you own
-
-### For Developers & DevOps
-
-- **135 tools covering the entire RunCloud API** - everything the dashboard can do, available programmatically
-- **SSH execution built in** - run any command on any server directly
-- **Compound operations** - WordPress quickstart (6 API calls), multi-server dashboard, cross-server domain search
-- **Self-healing automation** - detects nginx down, high memory, orphan processes, full disks - and fixes them
-- **Works with Claude Desktop and Claude Code** - GUI or terminal, your choice
-
----
-
-## RunCloud API - Full Server Management (128 Tools)
-
-Everything the RunCloud dashboard can do - faster, in bulk, across all servers at once.
-
-### Not Just an API Wrapper
-
-Most integrations wrap the API 1:1. This goes further with **compound tools** that chain multiple API calls into single operations:
-
-| Tool | What Happens Behind The Scenes |
-|------|-------------------------------|
-| `wordpress_quickstart` | Creates system user, database, DB user, grants access, creates web app, installs WordPress. **Six API calls. One prompt.** |
-| `server_overview` | Server info + health + hardware + services + web apps - fetched simultaneously |
-| `all_servers_health` | Health check across **every server** in your account at once |
-| `multi_server_dashboard` | Every server: name, IP, health score, webapp count, memory %, disk % - one view |
-| `webapp_inventory` | Every webapp across every server - domain, PHP, stack mode - one table |
-| `ssl_expiry_check` | Scans all web apps on a server, flags expired and expiring-soon certs |
-| `find_webapp_by_domain` | Searches **all servers** for a domain - returns which server it's on |
-| `failed_services_scan` | Scans all servers, returns only stopped/failed services - instant incident detection |
-| `deploy_and_verify` | Force deploy + check webapp status + tail logs - full deploy cycle in one step |
-| `server_health_score` | Calculates a 0-100 score with letter grade (A-F) based on memory, disk, load, services |
-
-### Example Prompts - RunCloud API
+## How It Works
 
 ```
-"Give me a full dashboard of all my servers"
-"Which servers have memory above 80%?"
-"Are there any stopped services across any of my servers?"
-"Set up a WordPress site on server 12345 with domain myblog.com, PHP 8.2, and SSL"
-"Deploy the latest changes from main branch to webapp 789 and verify it worked"
-"Which server is example.com on?"
-"Install a Let's Encrypt certificate for myblog.com"
-"Block all traffic to port 8080 except from IP 203.0.113.5"
-"Show me the full security audit for server 12345"
+You (Claude Code / Telegram)
+        │
+        │  /perch wp audit mysite.com
+        ▼
+  PERCH CORE
+  ├── reads your server (full profile on install)
+  ├── keeps a growing knowledge base (every server, webapp, problem, fix)
+  ├── SSH → runs deep checks
+  ├── RunCloud API → manages infrastructure
+  └── learns from every issue
+        │
+        ▼
+  YOUR SERVER
+  ├── WordPress sites
+  ├── Node / Laravel / n8n / anything
+  └── RunCloud managed or bare VPS
+        │
+        ▼
+  TELEGRAM / SLACK
+  (friendly alert + one action button)
 ```
 
 ---
 
-## Server Monitoring & Self-Healing (7 SSH Tools)
+## Quick Start
 
-These work on **any Linux server** - RunCloud-managed or not. No API key needed. Just SSH access.
+### Prerequisites
+- A RunCloud-managed server (or any Ubuntu/Debian VPS)
+- Node.js 18+
+- Claude Code (for MCP) and/or a Telegram bot token
 
-### What It Monitors
+### Install MCP (Claude Code)
 
-| Tool | What It Does |
-|------|-------------|
-| `ssh_server_status` | Full health report: RAM, disk, CPU load, nginx status, orphan process count, top 5 processes by memory |
-| `ssh_smart_fix` | Detects and auto-fixes: nginx down, orphan processes, high memory, full disk. Reports exactly what was fixed. |
-| `ssh_restart_service` | Restart any service via SSH. Auto-detects `nginx-rc` (RunCloud) vs `nginx`. Handles `n8n`, `pm2`, any systemd service. |
-| `ssh_kill_orphans` | Finds processes with PPID=1 (true orphans). Dry-run by default. Filter by process name. Safe - skips system processes. |
-| `ssh_disk_cleanup` | Lists large log files. Dry-run by default. Pass `dryRun: false` to clear. Configurable minimum size. |
-| `ssh_check_ports` | All listening ports with PID and process name. Optional filter to specific ports. |
-| `telegram_send_alert` | Send a Markdown message to any Telegram chat. Optionally include action buttons (Status, Smart Fix, Nginx, Disk, Ignore). |
-
-### What `ssh_smart_fix` Detects and Repairs
-
-```
-Problem detected               →  Action taken
-─────────────────────────────────────────────────
-nginx-rc / nginx is not active →  sudo systemctl restart nginx-rc (or nginx)
-Orphan procs (PPID=1) > 10    →  Kill all orphan PIDs
-Memory usage > 88%             →  pm2 restart all (finds pm2 automatically)
-Disk usage > 88%               →  truncate - s 0 on log files > 50MB
-All clear                      →  Reports "healthy - nothing needed fixing"
+```bash
+git clone https://github.com/adityaarsharma/perch
+cd perch
+npm install && npm run build
 ```
 
-### RunCloud-Specific: nginx-rc Detection
+Add to your Claude Code config (`~/.claude/claude_desktop_config.json`):
 
-RunCloud installs its own nginx binary (`nginx-rc`) instead of standard `nginx`. Most monitoring tools check the wrong service name and report "inactive" even when the web server is running fine.
-
-All SSH tools in Perch auto-detect which one is running:
-
-```
-systemctl is-active nginx-rc   →  active  →  use nginx-rc
-systemctl is-active nginx-rc   →  inactive →  fall back to nginx
-```
-
-You can also pass `nginxService: "nginx-rc"` explicitly to skip detection.
-
-### Example Prompts - Monitoring
-
-```
-"Check the status of my server at 95.216.156.89"
-"Run a smart fix on my server - detect and repair any issues"
-"Kill orphan processes on my server (dry run first)"
-"Restart nginx on my server - it uses RunCloud so try nginx-rc first"
-"Show me all listening ports on my server"
-"Find log files over 100MB and clear them"
+```json
+{
+  "mcpServers": {
+    "perch": {
+      "command": "node",
+      "args": ["/path/to/perch/dist/index.js"],
+      "env": {
+        "RUNCLOUD_API_KEY": "your-runcloud-api-key"
+      }
+    }
+  }
+}
 ```
 
----
-
-## Telegram Bot - Monitor & Fix from Your Phone
-
-A complete standalone monitoring and alerting layer. Runs on your server with zero external dependencies beyond Python.
-
-### How It Works
-
-```
-Your Server
-├── monitor.sh        ← Cron every 10 min → detects issues → sends Telegram alerts
-├── fix-server.py     ← Local HTTP API on 127.0.0.1:3011 → executes fix scripts
-├── bot.py            ← Telegram bot (polling) → handles commands + button callbacks
-└── .env              ← All config in one file (chmod 600)
-```
-
-**monitor.sh** runs every 10 minutes via cron. If it detects a problem (nginx down, high memory, disk full), it sends a Telegram message with inline action buttons. Tap a button, the fix runs instantly, you see the result in chat.
-
-### Telegram Commands
-
-| Command | What It Does |
-|---------|-------------|
-| `/status` | Full RAM, Disk, CPU, nginx, services status |
-| `/brief` | One-liner quick status |
-| `/fix` | Smart fix - auto-detect and repair all issues |
-| `/nginx` | Restart nginx / nginx-rc |
-| `/n8n` | Restart n8n |
-| `/services` | Restart all custom services |
-| `/disk` | Disk usage breakdown |
-| `/logs` | Clear large log files |
-| `/ports` | Check which service ports are responding |
-| `/mute 2h` | Silence alerts for 2 hours |
-| `/mute 30m` | Silence for 30 minutes |
-| `/unmute` | Re-enable alerts |
-| `/test` | Send a test alert |
-| `/reboot` | Reboot server (inline confirmation required) |
-| `/menu` | Show action button keyboard |
-| `/help` | All commands |
-
-### Alert Buttons
-
-When monitor.sh detects a problem, the Telegram message includes inline buttons:
-
-```
-Smart Fix    Status
-Nginx        Disk    Ignore
-```
-
-Tap a button, the fix runs, the result appears in the same chat. Works even when the Telegram bot service is stopped - the fix server handles callbacks independently.
-
-### Telegram Setup
+### Install Telegram Bot (Optional)
 
 ```bash
 cd telegram-bot
 cp config.example.env .env
-nano .env   # Add TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID
-bash setup.sh
+# Edit .env with your bot token, chat ID, server SSH details
+./setup.sh
 ```
-
-`setup.sh` handles everything:
-1. Writes `.env` with all config
-2. Generates a random auth token for the fix server
-3. Installs Python `requests` dependency
-4. Sets up the cron for `monitor.sh`
-5. Creates and starts systemd services for `bot.py` and `fix-server.py`
-6. Sends a test Telegram message to confirm it works
-
-**To get Telegram credentials:**
-- **Bot token:** Message [@BotFather](https://t.me/BotFather) on Telegram, run `/newbot`, copy the token
-- **Chat ID:** Message [@userinfobot](https://t.me/userinfobot) on Telegram, it replies with your chat ID
 
 ---
 
-## Installation
+## Commands
 
-### MCP Server (Claude Desktop or Claude Code)
+All commands work identically in **Claude Code** and **Telegram**.
 
-**1. Clone and build**
+### Server & Health
 
-```bash
-git clone https://github.com/adityaarsharma/runcloud-server-management-mcp.git
-cd runcloud-server-management-mcp
-npm install
-npm run build
+```
+/perch                          → quick status of all servers + webapps
+/perch status                   → server health (CPU / RAM / disk / services)
+/perch disk                     → disk usage breakdown + what's eating space
+/perch services                 → all services + uptime
+/perch logs nginx               → nginx error log — parsed, not raw
+/perch logs php                 → PHP errors grouped by type + file
 ```
 
-**2. Configure Claude Desktop**
+### Webapp Management
 
-Open the config file:
-- **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
-- **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
-
-```json
-{
-  "mcpServers": {
-    "runcloud": {
-      "command": "node",
-      "args": ["/absolute/path/to/runcloud-server-management-mcp/dist/index.js"],
-      "env": {
-        "RUNCLOUD_API_KEY": "your_runcloud_api_key_here"
-      }
-    }
-  }
-}
+```
+/perch sites                    → all webapps on all servers
+/perch site mysite.com          → full profile of one webapp
+/perch audit mysite.com         → run ALL checks (security + perf + db + plugins)
+/perch fix mysite.com           → diagnose + auto-fix what's safe to fix
 ```
 
-> **No RunCloud API key?** Remove the `RUNCLOUD_API_KEY` line entirely. The 7 SSH monitoring/self-healing tools still work. You'll only get an error if you try to use a RunCloud API tool.
+### WordPress Killer Series
 
-**3. Restart Claude Desktop**
-
-Perch starts automatically. You'll see a hammer icon in Claude Desktop confirming tools are loaded.
-
-**4. Claude Code (terminal)**
-
-```bash
-claude mcp add runcloud node /absolute/path/to/dist/index.js \
-  - e RUNCLOUD_API_KEY=your_runcloud_api_key_here
+```
+/perch wp db mysite.com         → database health (autoload, transients, orphans)
+/perch wp db clean mysite.com   → clean expired transients + orphaned sessions
+/perch wp plugins mysite.com    → plugin list + updates + vulnerability scan
+/perch wp security mysite.com   → hardening checklist (scored 0–100)
+/perch wp backup mysite.com     → backup status + destination health
+/perch wp images mysite.com     → image scan → savings estimate → optimize
+/perch wp perf mysite.com       → performance snapshot (cache, cron, PHP, TTFB)
+/perch wp errors mysite.com     → PHP errors diagnosed by plugin + root cause
 ```
 
-Or without API key (SSH monitoring tools only):
+### Intelligence
 
-```bash
-claude mcp add runcloud node /absolute/path/to/dist/index.js
+```
+/perch history mysite.com       → all past problems + fixes for this site
+/perch learn mysite.com         → re-scan + update Perch's knowledge
+/perch brain                    → what Perch knows across all servers
 ```
 
-**5. Via supergateway (for remote/shared access)**
+### Perch Itself
 
-```bash
-npm install - g supergateway
-supergateway --stdio "node /path/to/dist/index.js" \
-  --port 3020 \
-  --outputTransport streamableHttp \
-  --path /mcp \
-  --oauth2Bearer your_secret_token \
-  --logLevel none
 ```
-
-Then in Claude Desktop config:
-
-```json
-{
-  "mcpServers": {
-    "runcloud": {
-      "type": "streamable-http",
-      "url": "https://your-server.com:3020/mcp",
-      "headers": {
-        "Authorization": "Bearer your_secret_token"
-      }
-    }
-  }
-}
+/perch update                   → update Perch to latest
+/perch install site mysite.com  → add a webapp to Perch's watch list
+/perch config                   → view/change settings
 ```
-
-### Getting Your RunCloud API Key
-
-1. Log into [RunCloud](https://runcloud.io)
-2. Go to **Settings, then API Management**
-3. Create a new API key
-4. Copy the key - you won't see it again
-
-The API key gives full read/write access to everything in your RunCloud account. Store it only in your local config file - never commit it to Git.
 
 ---
 
-## Full Tool Catalog (135 Tools)
+## WordPress Module — Deep Dive
 
-<details>
-<summary><strong>Servers -17 tools</strong></summary>
+Perch treats WordPress as a first-class citizen. No plugin needed on the WordPress side — everything runs via SSH and WP-CLI from Perch.
 
-| Tool | Description |
-|------|-------------|
-| `list_servers` | List all servers. Supports `all: true` for auto-pagination. |
-| `list_shared_servers` | Servers shared with your account |
-| `get_server` | Full server details by ID |
-| `create_server` | Add a new server (works with any provider) |
-| `delete_server` | Remove a server from RunCloud |
-| `get_server_stats` | Web app count, database count, cron count, geo location |
-| `get_server_hardware_info` | CPU, RAM, disk, load average, kernel version, uptime |
-| `get_server_health` | Latest health data snapshot from RunCloud agent |
-| `clean_server_disk` | Trigger disk cleanup via RunCloud |
-| `get_installation_script` | Get the RunCloud agent install script for a server |
-| `get_server_logs` | Action and change logs for a server |
-| `get_ssh_settings` | SSH config: passwordless login, DNS, root login settings |
-| `update_ssh_settings` | Modify SSH configuration |
-| `update_server_meta` | Rename server or change provider label |
-| `update_server_autoupdate` | Configure automatic OS and security updates |
-| `list_php_versions` | Available PHP versions installed on a server |
-| `change_php_cli` | Set the default PHP CLI version |
+### Database Audit
 
-</details>
+```
+📊 DB Health: mysite.com
 
-<details>
-<summary><strong>Web Applications -12 tools</strong></summary>
+Autoload: 8.4MB ⚠️  HIGH
+(Healthy <1MB | Warning 3–5MB | Urgent >10MB)
 
-| Tool | Description |
-|------|-------------|
-| `list_webapps` | All web apps on a server. Supports `all: true`. |
-| `get_webapp` | Full details for a specific web app |
-| `create_webapp` | Create a web app (Native, Custom, or WordPress stack) |
-| `delete_webapp` | Delete a web app |
-| `rebuild_webapp` | Rebuild nginx + PHP config for a web app |
-| `get_webapp_settings` | PHP-FPM settings, memory, upload size |
-| `update_webapp_fpm_settings` | Update PHP-FPM pool settings |
-| `get_webapp_logs` | Recent logs for a web app |
-| `set_webapp_default` | Set a web app as the server's default |
-| `remove_webapp_default` | Remove the default flag |
-| `create_webapp_alias` | Add an alias/subdomain to a web app |
-| `change_webapp_php_version` | Switch PHP version for a web app |
+Top offenders:
+  elementor_data       2.1MB  (Elementor cache)
+  _transient_feed_*    1.8MB  (47 expired RSS transients)
+  woocommerce_session  890KB  (234 orphaned cart sessions)
+  rank_math_analytics  445KB  (SEO analytics cache)
 
-</details>
+Quick wins (~3.1MB savings):
+[🧹 Clear Transients]  [🗑️ Clean Sessions]  [📋 Full Report]
+```
 
-<details>
-<summary><strong>PHP Script Installer -3 tools</strong></summary>
+### Plugin Vulnerability Scan
 
-| Tool | Description |
-|------|-------------|
-| `list_script_installers` | Available one-click installers (WordPress, Joomla, Drupal, phpMyAdmin, etc.) |
-| `install_php_script` | Run a one-click installer on a web app |
-| `remove_php_installer` | Remove a script installer from a web app |
+Uses Wordfence Intelligence free API — no API key needed.
 
-</details>
+```
+🔌 Plugin Audit: mysite.com
 
-<details>
-<summary><strong>Git & Deployments -6 tools</strong></summary>
+34 active · 8 inactive (⚠️ remove inactive ones)
+Updates needed: 6 · Vulnerable: 2
 
-| Tool | Description |
-|------|-------------|
-| `get_git_info` | Current git connection details for a web app |
-| `clone_git_repo` | Connect a git repository to a web app |
-| `remove_git_repo` | Disconnect git from a web app |
-| `change_git_branch` | Switch the active branch |
-| `force_git_deploy` | Force a git pull and deploy |
-| `update_git_deploy_script` | Modify the post-deploy script |
-| `generate_deployment_key` | Generate an SSH deploy key for private repos |
+🔴 Contact Form 7 v5.7 — SQL Injection (CVE-2024-XXXX, CVSS 8.1)
+   Fix: update to v5.8
+   [🔄 Update Now]
 
-</details>
+🟡 WC Payments v6.1 — Auth Bypass (CVSS 6.5)
+   Fix: update to v6.2
+   [🔄 Update Now]
+```
 
-<details>
-<summary><strong>Domains -3 tools</strong></summary>
+### Security Audit
 
-| Tool | Description |
-|------|-------------|
-| `list_domains` | All domain names attached to a web app |
-| `add_domain` | Add a domain or subdomain to a web app |
-| `delete_domain` | Remove a domain from a web app |
+Scores your WordPress install 0–100 across 12 server-level checks.
 
-</details>
+```
+🔒 Security: mysite.com — Score 71/100 (Grade C)
 
-<details>
-<summary><strong>SSL Certificates -10 tools</strong></summary>
+❌ Admin username is "admin" (critical — change it)
+❌ xmlrpc.php is publicly accessible (high)
+❌ readme.html exposes WP version (medium)
+✅ wp-config.php permissions: 640
+✅ File editor disabled
+✅ SSL valid (expires 2026-07-14)
+✅ WP core checksums verified
+...
+```
 
-| Tool | Description |
-|------|-------------|
-| `get_ssl` | Current SSL cert info for a web app |
-| `install_ssl` | Install Let's Encrypt or custom SSL |
-| `delete_ssl` | Remove SSL from a web app |
-| `redeploy_ssl` | Force SSL redeployment |
-| `get_domain_ssl` | Per-domain SSL info |
-| `install_domain_ssl` | Install SSL for a specific domain |
-| `delete_domain_ssl` | Remove domain-level SSL |
-| `redeploy_domain_ssl` | Force redeploy domain SSL |
-| `get_advanced_ssl` | Advanced SSL config details |
-| `switch_advanced_ssl` | Toggle advanced SSL settings |
+### White Screen / Fatal Error Diagnosis
 
-</details>
+When your site shows a white screen, Perch SSHes in and diagnoses:
 
-<details>
-<summary><strong>Databases -12 tools</strong></summary>
+```
+🔴 White screen on mysite.com
 
-| Tool | Description |
-|------|-------------|
-| `list_databases` | All databases on a server |
-| `get_database` | Details for a specific database |
-| `create_database` | Create a new database |
-| `delete_database` | Delete a database |
-| `list_database_users` | All database users on a server |
-| `get_database_user` | Details for a specific DB user |
-| `create_database_user` | Create a database user |
-| `delete_database_user` | Delete a database user |
-| `update_database_user_password` | Change a DB user's password |
-| `list_granted_database_users` | Users with access to a specific database |
-| `grant_database_user` | Grant a user access to a database |
-| `revoke_database_user` | Revoke user access from a database |
-| `list_database_collations` | Available character sets and collations |
+Fatal error: Cannot redeclare 'my_custom_helper'
+Conflict between:
+  wp-content/plugins/my-plugin/includes/helpers.php:23
+  wp-content/themes/mytheme/functions.php:89
 
-</details>
+my-plugin was updated 2 hours ago — likely introduced this conflict.
 
-<details>
-<summary><strong>System Users -6 tools</strong></summary>
+[🔇 Deactivate my-plugin]  [📋 Full Error Log]  [↩️ Roll Back Plugin]
+```
 
-| Tool | Description |
-|------|-------------|
-| `list_system_users` | All system users on a server |
-| `get_system_user` | Details for a specific system user |
-| `create_system_user` | Create a system user (for web apps) |
-| `delete_system_user` | Delete a system user |
-| `change_system_user_password` | Set or change password (also needed for SSH login) |
-| `generate_deployment_key` | Generate SSH deploy key for a system user |
+### Image Optimization (Plugin-Free)
 
-</details>
+No plugin needed. Perch runs jpegoptim + cwebp + pngquant directly on the server.
 
-<details>
-<summary><strong>SSH Keys -4 tools</strong></summary>
+```
+/perch wp images mysite.com
 
-| Tool | Description |
-|------|-------------|
-| `list_ssh_keys` | All public SSH keys on a server |
-| `get_ssh_key` | Details for a specific SSH key |
-| `add_ssh_key` | Add a public SSH key to a server |
-| `delete_ssh_key` | Remove an SSH key |
+🖼️ Image Scan: mysite.com
 
-</details>
+1,247 images · 4.2GB total
+Estimated savings: ~1.4GB (lossless JPEG + PNG)
+WebP: will generate alongside originals
 
-<details>
-<summary><strong>Cron Jobs -5 tools</strong></summary>
+Largest files needing attention:
+  hero-2024.png    8.4MB
+  team-photo.jpg   6.1MB
 
-| Tool | Description |
-|------|-------------|
-| `list_cronjobs` | All cron jobs on a server |
-| `get_cronjob` | Details for a specific cron job |
-| `create_cronjob` | Create a new cron job |
-| `delete_cronjob` | Delete a cron job |
-| `rebuild_cronjobs` | Rebuild the crontab file |
+ETA: ~12 minutes. Runs in background.
 
-</details>
-
-<details>
-<summary><strong>Supervisor -8 tools</strong></summary>
-
-| Tool | Description |
-|------|-------------|
-| `list_supervisor_jobs` | All Supervisor background workers |
-| `get_supervisor_job` | Details for a specific worker |
-| `create_supervisor_job` | Create a new background worker |
-| `delete_supervisor_job` | Delete a worker |
-| `reload_supervisor_job` | Reload a specific worker |
-| `rebuild_supervisor_jobs` | Rebuild all Supervisor configs |
-| `get_supervisor_status` | Current status of all workers |
-| `list_supervisor_binaries` | Available binary paths for Supervisor |
-
-</details>
-
-<details>
-<summary><strong>Firewall & Security -9 tools</strong></summary>
-
-| Tool | Description |
-|------|-------------|
-| `list_firewall_rules` | All firewall rules on a server |
-| `create_firewall_rule` | Add a firewall rule (IP whitelist, port block, etc.) |
-| `delete_firewall_rule` | Remove a firewall rule |
-| `deploy_firewall_rules` | Apply pending firewall changes |
-| `list_fail2ban_blocked_ips` | IPs currently blocked by Fail2Ban |
-| `unblock_fail2ban_ip` | Unblock a specific IP from Fail2Ban |
-| `security_audit` | Full snapshot: firewall + SSH keys + Fail2Ban + external APIs |
-| `open_ports_report` | Ports open to 0.0.0.0 - review before going live |
-| `list_ssl_protocols` | Available SSL/TLS protocol versions |
-
-</details>
-
-<details>
-<summary><strong>Services -2 tools</strong></summary>
-
-| Tool | Description |
-|------|-------------|
-| `list_services` | All services (nginx, mysql, redis, etc.) with CPU, memory, version |
-| `control_service` | Start, stop, restart, or reload any service via RunCloud API |
-
-</details>
-
-<details>
-<summary><strong>External APIs -5 tools</strong></summary>
-
-| Tool | Description |
-|------|-------------|
-| `list_external_apis` | All connected third-party API keys |
-| `get_external_api` | Details for a specific external API |
-| `create_external_api` | Add a new external API (Cloudflare, DigitalOcean, etc.) |
-| `update_external_api` | Update an external API connection |
-| `delete_external_api` | Remove an external API |
-
-</details>
-
-<details>
-<summary><strong>Cross-Server Search & Inventory -4 tools</strong></summary>
-
-| Tool | Description |
-|------|-------------|
-| `find_webapp_by_domain` | Search all servers for a domain name - returns server + webapp |
-| `webapp_inventory` | Full inventory: every webapp across all servers in one table |
-| `multi_server_dashboard` | All servers: health score, webapp count, memory%, disk% |
-| `failed_services_scan` | All servers: only stopped/failed services - instant incident detection |
-
-</details>
-
-<details>
-<summary><strong>Health, Monitoring & Performance -7 tools</strong></summary>
-
-| Tool | Description |
-|------|-------------|
-| `server_overview` | Full server snapshot: info + health + hardware + services + webapps |
-| `server_health_score` | 0-100 score + letter grade (A-F) based on RAM, disk, load, services |
-| `all_servers_health` | Health status across every server in your account |
-| `server_load_report` | CPU, memory, disk, and load trends via SSH |
-| `nginx_top_ips` | Top IPs hitting nginx - detect scrapers and attackers |
-| `php_error_summary` | PHP error counts by type + last 20 lines from error log |
-| `ssl_expiry_check` | Scans all web apps, flags EXPIRED and EXPIRING_SOON certs |
-
-</details>
-
-<details>
-<summary><strong>Deployments -2 tools</strong></summary>
-
-| Tool | Description |
-|------|-------------|
-| `deploy_and_verify` | Force deploy + check webapp status + tail logs - one step |
-| `wordpress_quickstart` | Full WordPress setup: user + DB + web app + install - one prompt |
-
-</details>
-
-<details>
-<summary><strong>WordPress Management (SSH) -5 tools</strong></summary>
-
-| Tool | Description |
-|------|-------------|
-| `ssh_wp_cli` | Run any WP-CLI command on any web app |
-| `wp_health_check` | WP core checksums + active plugins + cron status |
-| `wp_outdated_plugins` | List plugins with available updates |
-| `wp_admin_audit` | All admin users - detect unexpected accounts |
-| `wp_clear_all_caches` | Flush WordPress + Redis + OPcache |
-
-</details>
-
-<details>
-<summary><strong>SSH Direct Execution -4 tools</strong></summary>
-
-| Tool | Description |
-|------|-------------|
-| `ssh_run_command` | Run any shell command on any server via SSH |
-| `ssh_artisan` | Run Laravel Artisan commands |
-| `ssh_tail_log` | Live tail a log file (returns last N lines) |
-| `ping` | Test API authentication |
-
-</details>
-
-<details>
-<summary><strong>Server Monitoring & Self-Healing (SSH-direct) -7 tools</strong></summary>
-
-| Tool | Description |
-|------|-------------|
-| `ssh_server_status` | Full health report: RAM, disk, CPU load, nginx/nginx-rc status, orphan count, top 5 processes |
-| `ssh_smart_fix` | Auto-detect and fix: nginx down, orphan procs, high memory, full disk |
-| `ssh_restart_service` | Restart any service. Auto-detects nginx-rc vs nginx. |
-| `ssh_kill_orphans` | Find and kill orphan processes (PPID=1). Dry-run by default. |
-| `ssh_disk_cleanup` | Find and clear large log files. Dry-run by default. |
-| `ssh_check_ports` | All listening ports with PID and process name. |
-| `telegram_send_alert` | Send Markdown message to Telegram with optional action buttons. |
-
-</details>
+[▶️ Optimize All]  [⚙️ Skip WebP]  [❌ Cancel]
+```
 
 ---
 
-## SSH Tools - How Server Connections Work
+## Intelligence Layer
 
-**With RunCloud API:** Pass a `serverId` - the server IP is fetched automatically from RunCloud. You never need to look it up.
+Perch builds a **per-server, per-webapp knowledge base** that grows over time.
 
-**Without RunCloud API:** Pass `host` directly to any SSH monitoring tool. No API key needed.
-
-```
-With API:    "List my servers" → "SSH into server 12345 as deploy and run ls"
-Without API: "Check server status at 95.216.156.89 - SSH as runcloud / mypassword"
-```
-
-### System Users Are Required for SSH
-
-RunCloud uses isolated system users per web app. SSH tools need a username and password:
+Every audit, every fix, every problem gets logged. After 30 days, Perch knows:
+- Your memory/disk baseline (alerts only when something is actually abnormal for your server)
+- Which plugins cause problems on your specific stack
+- Which fixes work for your recurring issues
 
 ```
-"Set the password for system user 99 on server 12345 to MyPass123"
+/perch brain
+
+🧠 Perch Knowledge — production-1
+
+Servers: 2  |  Webapps: 7  |  WP sites: 5
+Problems logged: 43  |  Fixes applied: 38
+
+Recurring issue (5x this month):
+  nginx crash → always caused by worker_connections limit at traffic spikes
+  Suggested permanent fix: increase to 2048
+
+Plugin risk across all sites:
+  Contact Form 7 — 3 sites still on vulnerable v5.7
 ```
-
-Then use that username and password in all SSH tool calls.
-
-### RunCloud Agent vs SSH - Two Ways to Check Health
-
-- `get_server_health` - Uses RunCloud's agent data (polled every minute by RunCloud). Slight delay.
-- `ssh_server_status` - Runs commands directly on the server. Real-time. Works even if the RunCloud agent is slow.
 
 ---
 
-## Project Structure
+## Auto-Watch (No Setup After Install)
+
+| Metric | Alert Threshold | What Perch Does |
+|--------|----------------|-----------------|
+| CPU load avg | >80% for 10min | Diagnose which process |
+| RAM | >88% | Top consumers + PM2 restart offer |
+| Disk | 80% → 90% → 95% | Tiered nudges |
+| nginx / nginx-rc | Down | Config check → restart |
+| PHP-FPM | Down | Restart + log cause |
+| MySQL | Down | Restart + OOM check |
+| Site HTTP status | 4xx/5xx | SSH → diagnose root cause |
+| SSL expiry | 30d / 7d / 1d | Alert + renew offer |
+
+---
+
+## Alert Philosophy
+
+**What happened → what Perch already did → what you should do (one action)**
 
 ```
-runcloud-server-management-mcp/
-│
+❌  CRITICAL: nginx DOWN on production-1 at 14:23:41
+
+✅  nginx had a moment on production-1. Config had a typo on
+    line 47 — I restarted it and the site is back up.
+    Want me to fix that snippet?
+```
+
+Calm. Specific. Actionable. Never alarming.
+
+---
+
+## Webapp Support
+
+WordPress is first. Others get full modules as Perch grows:
+
+| Type | Status |
+|------|--------|
+| WordPress | ✅ Full — DB, plugins, security, images, perf, errors |
+| Node.js / PM2 | ✅ Process health + restart |
+| n8n | ✅ Health check + restart |
+| Laravel | 🔜 Queue health, schedule runner |
+| Static | ✅ HTTP uptime + nginx |
+| Any webapp | ✅ Server health + SSL |
+
+---
+
+## Security
+
+- Credentials never logged — sanitized from all error output
+- SSH connections: password or private key, configurable
+- fix-server API binds to `127.0.0.1` only — never externally accessible
+- All shell inputs validated and escaped before execution
+- Destructive actions always require confirmation via Telegram button
+- Auto-fix never touches WordPress content without explicit confirmation
+
+---
+
+## Architecture
+
+```
+perch/
 ├── src/
-│   └── index.ts              ← Full MCP server - all 135 tools
+│   ├── index.ts                   ← MCP server (RunCloud + Perch tools)
+│   ├── core/
+│   │   ├── brain.ts               ← SQLite knowledge base
+│   │   ├── gateway.ts             ← Alert formatter (friendly tone)
+│   │   └── ssh-enhanced.ts        ← SSH with key auth + WP-CLI helper
+│   └── modules/
+│       └── wordpress/
+│           ├── db.ts              ← Database audit + cleanup
+│           ├── plugins.ts         ← Plugin audit + Wordfence CVE check
+│           ├── security.ts        ← Hardening checklist
+│           ├── backup.ts          ← Backup health
+│           ├── images.ts          ← CLI image optimization
+│           ├── perf.ts            ← Performance snapshot
+│           └── errors.ts          ← Error diagnosis + white screen
 │
-├── dist/                     ← Compiled JavaScript (auto-generated)
-│   └── index.js
+├── telegram-bot/
+│   ├── bot.py                     ← Telegram polling bot
+│   ├── fix-server.py              ← Local HTTP API (127.0.0.1 only)
+│   ├── monitor.sh                 ← Cron health alerting
+│   ├── setup.sh                   ← Interactive setup wizard
+│   └── scripts/                   ← Shell scripts for each action
 │
-├── telegram-bot/             ← Standalone Telegram monitoring stack
-│   ├── bot.py                ← Telegram bot (polling, no library needed)
-│   ├── fix-server.py         ← Local HTTP fix API (127.0.0.1:3011)
-│   ├── monitor.sh            ← Cron monitor (alerts + dedup + mute)
-│   ├── setup.sh              ← One-command setup wizard
-│   └── config.example.env    ← All config documented
-│
-├── package.json
-├── tsconfig.json
 └── README.md
 ```
 
 ---
 
-## Dependencies
+## Brand
 
-### MCP Server
+**Perch** by [Aditya Sharma](https://adityaarsharma.com) — always free, always open source.
 
-| Dependency | Version | Purpose |
-|------------|---------|---------|
-| **Node.js** | 18+ | Runtime (built-in `fetch()`) |
-| **npm** | 8+ | Package manager |
-| `@modelcontextprotocol/sdk` | latest | MCP protocol - how AI clients communicate with this server |
-| `ssh2` | ^1.x | SSH client - enables direct server connections |
-| **TypeScript** | 5.x | Source language |
+Not affiliated with RunCloud. Perch works *with* RunCloud, not instead of it.
 
-No database. No background services. No port forwarding. Perch is a process spawned by the AI client when you open it.
-
-### Telegram Bot (optional)
-
-| Dependency | Version | Purpose |
-|------------|---------|---------|
-| **Python** | 3.8+ | Runtime for bot and fix server |
-| `requests` | any | HTTP calls to Telegram API |
-| **bash** | 4+ | For monitor.sh |
-| `jq` | any | JSON formatting |
-| `curl` | any | HTTP in monitor.sh |
-| `nc` (netcat) | any | Port checking |
-| **systemd** | any | Runs bot and fix server as services |
-| **cron** | any | Runs monitor.sh every 10 minutes |
-
-No Telegram bot library needed - uses the raw Telegram Bot API.
-
----
-
-## Built With
-
-| Library | Purpose |
-|---------|---------|
-| [`@modelcontextprotocol/sdk`](https://github.com/modelcontextprotocol/typescript-sdk) | MCP protocol implementation |
-| [`ssh2`](https://github.com/mscdex/ssh2) | SSH client for Node.js |
-| [RunCloud API v3](https://runcloud.io/docs/api/v3) | Server management REST API |
-| TypeScript 5 + Node.js 18 | Language and runtime |
-| Python 3 + requests | Telegram bot and monitoring |
-
----
-
-## Contributing
-
-PRs welcome. Ideas:
-
-- More compound tools (e.g. `migrate_webapp` - clone a webapp to another server)
-- Discord notification support in monitor.sh
-- RunCloud webhook receiver
-- Multi-account support (multiple API keys)
-- Health history tracking
-
----
-
-## Related Projects
-
-- **[YouTube Channel Data MCP](https://github.com/adityaarsharma/youtube-channel-data-mcp)** - Connect Claude to your YouTube Analytics data
-
----
-
-## License
-
-MIT - use it, modify it, ship it.
-
----
-
-## About
-
-Built by **[Aditya Sharma](https://adityaarsharma.com)** - marketing and growth at [POSIMYTH](https://posimyth.com), makers of WordPress tools.
-
-- [adityaarsharma.com](https://adityaarsharma.com)
-- [@adityaarsharma on X](https://twitter.com/adityaarsharma)
-- [github.com/adityaarsharma](https://github.com/adityaarsharma)
-
-If this saved you time -**star the repo**
-
----
-
-*Not an official RunCloud product. Built independently using the [RunCloud public API v3](https://runcloud.io/docs/api/v3).*
+[GitHub](https://github.com/adityaarsharma/perch) · [Issues](https://github.com/adityaarsharma/perch/issues)
