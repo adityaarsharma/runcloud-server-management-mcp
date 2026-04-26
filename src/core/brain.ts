@@ -110,10 +110,16 @@ export interface BrainSummary {
 
 // ─── INIT ─────────────────────────────────────────────────────────────────────
 
-const DEFAULT_DB_PATH = join(homedir(), ".perch", "brain.db");
+// Honour PERCH_BRAIN_PATH first (explicit override), then PERCH_VAULT_DIR
+// (parallel to vault.ts), then fall back to ~/.perch.
+function defaultDbPath(): string {
+  if (process.env.PERCH_BRAIN_PATH) return process.env.PERCH_BRAIN_PATH;
+  const dir = process.env.PERCH_VAULT_DIR ?? join(homedir(), ".perch");
+  return join(dir, "brain.db");
+}
 
 export function initBrain(dbPath?: string): Database.Database {
-  const resolvedPath = dbPath ?? DEFAULT_DB_PATH;
+  const resolvedPath = dbPath ?? defaultDbPath();
   const dir = dirname(resolvedPath);
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
