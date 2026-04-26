@@ -275,10 +275,59 @@ main {
 }
 .secondary:hover { color: var(--sky); border-color: var(--sky); }
 
+/* ── Author block (above footer) ─────────────────────────────────── */
+.author {
+  text-align: center;
+  padding: 36px 24px 14px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11.5px;
+  color: var(--text-dim);
+  border-top: 1px solid var(--border);
+  margin-top: 40px;
+}
+.author .name {
+  display: block;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+  margin-bottom: 12px;
+  letter-spacing: 0.02em;
+}
+.author .name::before { content: '~ '; color: var(--text-faint); }
+.author-links {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px 4px;
+  justify-content: center;
+  align-items: center;
+}
+.author-links a {
+  color: var(--text-dim);
+  text-decoration: none;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  transition: color 0.18s ease, border-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+.author-links a:hover {
+  color: var(--sky);
+  border-color: var(--border-strong);
+  background: var(--surface);
+  transform: translateY(-1px);
+}
+.author-links .sep {
+  color: var(--text-faint);
+  user-select: none;
+  opacity: 0.4;
+  padding: 0 2px;
+}
+
 /* ── Footer ─────────────────────────────────────────────────────────── */
 footer {
   text-align: center;
-  padding: 18px 24px 26px;
+  padding: 12px 24px 26px;
   font-family: 'JetBrains Mono', monospace;
   font-size: 11.5px;
   color: var(--text-faint);
@@ -422,6 +471,23 @@ footer kbd {
   </div>
 </main>
 
+<div class="author mono">
+  <span class="name">aditya sharma</span>
+  <div class="author-links">
+    <a href="https://github.com/adityaarsharma/perch" target="_blank" rel="noopener" title="GitHub repo">repo</a>
+    <span class="sep">·</span>
+    <a href="https://github.com/adityaarsharma/perch/blob/main/docs/vision.md" target="_blank" rel="noopener" title="Vision">vision.md</a>
+    <span class="sep">·</span>
+    <a href="https://github.com/adityaarsharma" target="_blank" rel="noopener" title="GitHub profile">github</a>
+    <span class="sep">·</span>
+    <a href="https://x.com/adityaarsharma" target="_blank" rel="noopener" title="X / Twitter">x.com</a>
+    <span class="sep">·</span>
+    <a href="https://adityaarsharma.com" target="_blank" rel="noopener" title="Website">site</a>
+    <span class="sep">·</span>
+    <a href="mailto:work@adityaarsharma.com" title="Email">work@adityaarsharma.com</a>
+  </div>
+</div>
+
 <footer class="mono">
   <span>MIT licence</span><span class="dot-sep">·</span><span>self-hosted</span><span class="dot-sep">·</span><span>always free</span>
   <span class="hint">try typing <kbd>perch</kbd> · click anywhere</span>
@@ -499,23 +565,7 @@ footer kbd {
     }
   }
 
-  // ── Magnetic CTA hover ─────────────────────────────────────────────
-  if (!reduced) {
-    const cta = document.getElementById('cta');
-    const radius = 90;
-    document.addEventListener('mousemove', e => {
-      const r = cta.getBoundingClientRect();
-      const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
-      const dx = e.clientX - cx, dy = e.clientY - cy;
-      const dist = Math.hypot(dx, dy);
-      if (dist < radius) {
-        const f = (1 - dist / radius) * 0.35;
-        cta.style.transform = `translate(${dx * f}px, ${dy * f}px)`;
-      } else {
-        cta.style.transform = 'translate(0,0)';
-      }
-    }, { passive: true });
-  }
+  // ── (magnetic CTA removed — felt janky; native hover lift in CSS stays) ──
 
   // ── Click anywhere → feather rains down ────────────────────────────
   if (!reduced) {
