@@ -85,6 +85,17 @@ fi
 send_alert() {
   # send_alert <rule_id> <severity> <title> <body> <button_json>
   local rule_id="$1" severity="$2" title="$3" body="$4" buttons="${5:-[]}"
+
+  # Mark Perch session active (kind=alert, 24h timeout) so Niyati can route
+  # cross-questions to handle_server until user clicks Acknowledge.
+  if [ -w /tmp ]; then
+    local now_iso; now_iso="$(date -u +%Y-%m-%dT%H:%M:%S)"
+    cat > /tmp/perch_session.json << SESSEOF
+{"active": true, "kind": "alert", "started": "${now_iso}", "last_activity": "${now_iso}", "alert_rule": "${rule_id}"}
+SESSEOF
+    chmod 666 /tmp/perch_session.json 2>/dev/null || true
+  fi
+
   local state_file="$STATE_DIR/$rule_id"
   local now hash last_hash last_time elapsed
   now="$(date +%s)"
@@ -131,14 +142,14 @@ send_alert() {
 }
 
 # Common button sets
-BTN_FIX_STATUS='[[{"text":"🔧 Smart Fix","callback_data":"fix"},{"text":"📊 Status","callback_data":"status"}],[{"text":"🔇 Mute 1h","callback_data":"mute_1h"},{"text":"✅ Ack","callback_data":"ignore"}]]'
-BTN_NGINX='[[{"text":"🌐 Restart nginx","callback_data":"fix-nginx"},{"text":"📋 Logs","callback_data":"logs-nginx"}],[{"text":"✅ Ack","callback_data":"ignore"}]]'
-BTN_DISK='[[{"text":"🧹 Clear logs","callback_data":"clear-logs"},{"text":"💾 Show disk","callback_data":"disk"}],[{"text":"✅ Ack","callback_data":"ignore"}]]'
-BTN_RAM='[[{"text":"🔧 Smart Fix","callback_data":"fix"},{"text":"📊 Top Procs","callback_data":"top-procs"}],[{"text":"✅ Ack","callback_data":"ignore"}]]'
-BTN_PHP='[[{"text":"🔄 Restart PHP-FPM","callback_data":"fix-php-fpm"},{"text":"📋 PHP errors","callback_data":"logs-php"}],[{"text":"✅ Ack","callback_data":"ignore"}]]'
-BTN_DB='[[{"text":"🔄 Restart MySQL","callback_data":"fix-mysql"},{"text":"📊 Status","callback_data":"status"}],[{"text":"✅ Ack","callback_data":"ignore"}]]'
-BTN_SSL='[[{"text":"🔄 Renew SSL","callback_data":"renew-ssl"},{"text":"📋 SSL Status","callback_data":"ssl-status"}],[{"text":"✅ Ack","callback_data":"ignore"}]]'
-BTN_ACK='[[{"text":"✅ Acknowledge","callback_data":"ignore"}]]'
+BTN_FIX_STATUS='[[{"text":"🔧 Smart Fix","callback_data":"fix"},{"text":"📊 Status","callback_data":"status"}],[{"text":"🔇 Mute 1h","callback_data":"mute_1h"},{"text":"✅ Ack","callback_data":"perch:ack"}]]'
+BTN_NGINX='[[{"text":"🌐 Restart nginx","callback_data":"fix-nginx"},{"text":"📋 Logs","callback_data":"logs-nginx"}],[{"text":"✅ Ack","callback_data":"perch:ack"}]]'
+BTN_DISK='[[{"text":"🧹 Clear logs","callback_data":"clear-logs"},{"text":"💾 Show disk","callback_data":"disk"}],[{"text":"✅ Ack","callback_data":"perch:ack"}]]'
+BTN_RAM='[[{"text":"🔧 Smart Fix","callback_data":"fix"},{"text":"📊 Top Procs","callback_data":"top-procs"}],[{"text":"✅ Ack","callback_data":"perch:ack"}]]'
+BTN_PHP='[[{"text":"🔄 Restart PHP-FPM","callback_data":"fix-php-fpm"},{"text":"📋 PHP errors","callback_data":"logs-php"}],[{"text":"✅ Ack","callback_data":"perch:ack"}]]'
+BTN_DB='[[{"text":"🔄 Restart MySQL","callback_data":"fix-mysql"},{"text":"📊 Status","callback_data":"status"}],[{"text":"✅ Ack","callback_data":"perch:ack"}]]'
+BTN_SSL='[[{"text":"🔄 Renew SSL","callback_data":"renew-ssl"},{"text":"📋 SSL Status","callback_data":"ssl-status"}],[{"text":"✅ Ack","callback_data":"perch:ack"}]]'
+BTN_ACK='[[{"text":"✅ Acknowledge","callback_data":"perch:ack"}]]'
 
 # ────────────────────────────────────────────────────────────────────────────────
 # RULE 1 — nginx / nginx-rc service down
