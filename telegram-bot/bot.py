@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Server Monitor Bot — Standalone Telegram bot for server management
-No n8n required. Works on any Linux server (RunCloud, DO, AWS, Hetzner...).
-https://github.com/adityaarsharma/server-monitor-bot
+Perch — Telegram connector for server intelligence
+Standalone bot — no n8n, no Zapier, no SaaS. Works on any Linux server.
+https://github.com/adityaarsharma/perch
 """
 import os, json, time, requests, sys
 from pathlib import Path
@@ -73,64 +73,112 @@ def fix(endpoint):
 def main_kb():
     return {'inline_keyboard': [
         [{'text': '📊 Status',     'callback_data': 'status'},
-         {'text': '⚡ Brief',      'callback_data': 'status-brief'}],
+         {'text': '⚡ Brief',      'callback_data': 'status-brief'},
+         {'text': '🧠 Top Procs',  'callback_data': 'top-procs'}],
         [{'text': '🔧 Smart Fix',  'callback_data': 'fix'},
+         {'text': '🌐 Nginx',      'callback_data': 'fix-nginx'},
+         {'text': '🐘 PHP-FPM',    'callback_data': 'fix-php-fpm'}],
+        [{'text': '🗄  MySQL',     'callback_data': 'fix-mysql'},
+         {'text': '⚙️ Services',   'callback_data': 'fix-services'},
          {'text': '🔌 Ports',      'callback_data': 'check-ports'}],
-        [{'text': '🌐 Nginx',      'callback_data': 'fix-nginx'},
-         {'text': '🤖 n8n',        'callback_data': 'fix-n8n'},
-         {'text': '⚙️ Services',   'callback_data': 'fix-services'}],
         [{'text': '💾 Disk',       'callback_data': 'disk'},
          {'text': '🧹 Clear Logs', 'callback_data': 'clear-logs'}],
+        [{'text': '📋 nginx logs', 'callback_data': 'logs-nginx'},
+         {'text': '📋 PHP logs',   'callback_data': 'logs-php'}],
+        [{'text': '🔐 SSL Status', 'callback_data': 'ssl-status'},
+         {'text': '🔄 Renew SSL',  'callback_data': 'renew-ssl'}],
     ]}
 
 # ── Command definitions ───────────────────────────────────────────────────────
 
 COMMANDS = {
-    '/status':  ('status',        '📊 Full status'),
-    '/brief':   ('status-brief',  '⚡ Quick status'),
-    '/fix':     ('fix',           '🔧 Smart fix all issues'),
-    '/nginx':   ('fix-nginx',     '🌐 Restart nginx'),
-    '/n8n':     ('fix-n8n',       '🤖 Restart n8n'),
-    '/services':('fix-services',  '⚙️ Restart services'),
-    '/disk':    ('disk',          '💾 Disk usage'),
-    '/logs':    ('clear-logs',    '🧹 Clear large logs'),
-    '/ports':   ('check-ports',   '🔌 Check service ports'),
+    # Status
+    '/status':    ('status',        '📊 Full status'),
+    '/brief':     ('status-brief',  '⚡ Quick status'),
+    '/top':       ('top-procs',     '🧠 Top processes'),
+    '/disk':      ('disk',          '💾 Disk usage'),
+    '/ports':     ('check-ports',   '🔌 Check service ports'),
+    # Fixes
+    '/fix':       ('fix',           '🔧 Smart fix all issues'),
+    '/nginx':     ('fix-nginx',     '🌐 Restart nginx'),
+    '/phpfpm':    ('fix-php-fpm',   '🐘 Restart PHP-FPM'),
+    '/mysql':     ('fix-mysql',     '🗄 Restart MySQL'),
+    '/services':  ('fix-services',  '⚙️  Restart services'),
+    '/n8n':       ('fix-n8n',       '🤖 Restart n8n (if installed)'),
+    # Logs
+    '/lognginx':  ('logs-nginx',    '📋 nginx error log'),
+    '/logphp':    ('logs-php',      '📋 PHP error log'),
+    '/clearlogs': ('clear-logs',    '🧹 Clear large logs'),
+    # SSL
+    '/ssl':       ('ssl-status',    '🔐 SSL expiry status'),
+    '/renewssl':  ('renew-ssl',     '🔄 Renew SSL certs'),
 }
 
 # Callback data → fix endpoint (includes monitor.sh button callbacks)
 CB_MAP = {
+    # Status
     'status':        'status',
-    'status-brief':  'status-brief',
     'status_full':   'status',
+    'status-brief':  'status-brief',
+    'top-procs':     'top-procs',
+    'disk':          'disk',
+    'disk_check':    'disk',
+    'check-ports':   'check-ports',
+    # Fixes
     'fix':           'fix',
     'mcp_restart':   'fix',
     'fix-nginx':     'fix-nginx',
     'nginx_fix':     'fix-nginx',
-    'fix-n8n':       'fix-n8n',
-    'n8n_fix':       'fix-n8n',
+    'fix-php-fpm':   'fix-php-fpm',
+    'php_fix':       'fix-php-fpm',
+    'fix-mysql':     'fix-mysql',
+    'mysql_fix':     'fix-mysql',
     'fix-services':  'fix-services',
-    'disk':          'disk',
-    'disk_check':    'disk',
+    'fix-n8n':       'fix-n8n',
+    # Logs
+    'logs-nginx':    'logs-nginx',
+    'logs-php':      'logs-php',
     'clear-logs':    'clear-logs',
     'clear_logs':    'clear-logs',
-    'check-ports':   'check-ports',
+    # SSL
+    'ssl-status':    'ssl-status',
+    'renew-ssl':     'renew-ssl',
+}
+
+# Mute durations for callback buttons
+MUTE_CALLBACKS = {
+    'mute_30m': 30 * 60,
+    'mute_1h':  60 * 60,
+    'mute_4h':  4 * 60 * 60,
+    'mute_24h': 24 * 60 * 60,
 }
 
 HELP_TEXT = """
-*🖥️ Server Monitor Bot*
+*🪶 Perch — Server Intelligence*
 
 📊 *Monitor*
 `/status`  — RAM, Disk, CPU, Nginx, Services
 `/brief`   — One-liner quick check
+`/top`     — Top 10 processes by RAM/CPU
 `/ports`   — Which services are up/down
 `/disk`    — Disk usage breakdown
 
 🔧 *Fix*
 `/fix`      — Smart fix (auto-detect + repair all)
 `/nginx`    — Restart nginx / nginx-rc
-`/n8n`      — Restart n8n
+`/phpfpm`   — Restart PHP-FPM (any version)
+`/mysql`    — Restart MySQL / MariaDB
 `/services` — Restart all custom services
-`/logs`     — Clear large log files
+`/n8n`      — Restart n8n (if you run it)
+
+📋 *Logs*
+`/lognginx` — nginx error log + summary
+`/logphp`   — PHP error log + top errors
+`/clearlogs`— Truncate logs >50MB
+
+🔐 *SSL*
+`/ssl`      — SSL expiry status for all sites
+`/renewssl` — Run certbot renew + reload nginx
 
 🔕 *Alerts*
 `/mute 2h`  — Silence alerts for 2 hours
@@ -192,10 +240,13 @@ def handle_message(msg):
         dur = parts[1] if len(parts) > 1 else '1h'
         secs = parse_duration(dur)
         muted_until = time.time() + secs
-        # Write mute file for monitor.sh
-        mute_file = '/tmp/server-monitor-muted'
-        with open(mute_file, 'w') as f:
-            f.write(str(int(muted_until)))
+        # Write mute file for monitor.sh — write both new + legacy paths
+        for mute_path in ('/tmp/perch-monitor-muted', '/tmp/server-monitor-muted'):
+            try:
+                with open(mute_path, 'w') as f:
+                    f.write(str(int(muted_until)))
+            except Exception:
+                pass
         until_str = time.strftime('%H:%M', time.localtime(muted_until))
         send(f'🔕 Alerts muted until {until_str}', chat_id=chat_id)
         return
@@ -204,10 +255,11 @@ def handle_message(msg):
     if cmd == '/unmute':
         muted_until = 0.0
         import os as _os
-        try:
-            _os.remove('/tmp/server-monitor-muted')
-        except FileNotFoundError:
-            pass
+        for mute_path in ('/tmp/perch-monitor-muted', '/tmp/server-monitor-muted'):
+            try:
+                _os.remove(mute_path)
+            except FileNotFoundError:
+                pass
         send('🔔 Alerts re-enabled', chat_id=chat_id)
         return
 
@@ -275,6 +327,23 @@ def handle_callback(cb):
 
     if data == 'ignore':
         edit(mid, '✅ Alert acknowledged.', chat_id=chat_id)
+        return
+
+    # Mute callbacks (mute_30m, mute_1h, mute_4h, mute_24h)
+    if data in MUTE_CALLBACKS:
+        global muted_until
+        secs = MUTE_CALLBACKS[data]
+        muted_until = time.time() + secs
+        try:
+            with open('/tmp/perch-monitor-muted', 'w') as f:
+                f.write(str(int(muted_until)))
+            # Backward compat
+            with open('/tmp/server-monitor-muted', 'w') as f:
+                f.write(str(int(muted_until)))
+        except Exception as e:
+            print(f'[bot] mute write error: {e}', flush=True)
+        until_str = time.strftime('%H:%M', time.localtime(muted_until))
+        edit(mid, f'🔕 Alerts muted until {until_str}.', chat_id=chat_id)
         return
 
     # Fix server endpoints

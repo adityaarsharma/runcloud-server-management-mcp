@@ -311,6 +311,33 @@ Not a stack trace. Not "Internal Server Error." A **diagnosis**.
 
 ---
 
+## Automation Rules
+
+Every Perch install ships with **14 built-in monitoring rules** that run via cron every 5 minutes. No n8n. No Zapier. No SaaS. The whole engine is a self-contained shell script (`telegram-bot/monitor.sh`) — about 400 lines, runs in under 2 seconds.
+
+| # | Rule | Default trigger | Auto-action |
+|---|---|---|---|
+| 1 | nginx / nginx-rc down | service inactive | Telegram alert + restart button |
+| 2 | PHP-FPM down (any version) | any `php*-fpm-rc` inactive | Restart button |
+| 3 | MySQL / MariaDB down | service inactive | Restart button + OOM context |
+| 4 | Disk usage tiered | 80% / 90% / 95% | Tiered alerts + cleanup button |
+| 5 | RAM usage tiered | 85% / 93% | Top consumers + smart fix |
+| 6 | CPU sustained load | 100% / 200% of cores | Top processes |
+| 7 | Orphan processes (PPID=1) | >10 orphans | Smart fix |
+| 8 | Failed systemd services | any in `systemctl --failed` | Smart fix |
+| 9 | SSL expiry per site | 30d / 7d remaining | Renew SSL button |
+| 10 | Site HTTP availability | 5xx or unreachable | Diagnose + fix buttons |
+| 11 | Custom port checks | any configured port closed | Smart fix |
+| 12 | fail2ban ban-rate spike | >50 bans/hour | Acknowledge |
+| 13 | Backup age | >36h since last backup | Acknowledge |
+| 14 | Daily heartbeat | 09:00 local time | "All systems good 🪶" |
+
+Every threshold is overridable in `~/.perch/.env`. Every alert is friendly, contextual, and ships with one-tap action buttons. Cooldown logic prevents alert spam (default: 30 min between identical alerts).
+
+`bash scripts/setup.sh` installs the cron line and prompts you for thresholds. Full reference: [docs/automation.md](docs/automation.md).
+
+---
+
 ## Connectors
 
 Connectors are how Perch talks to you. Pick one. Pick all. Add your own — the gateway is just a function that takes a structured alert and returns a payload.

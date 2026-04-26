@@ -35,15 +35,27 @@ if HOST != '127.0.0.1':
 SCRIPTS = Path(__file__).parent / 'scripts'
 
 ROUTES = {
+    # Core fix actions
     '/fix':          'smart-fix.sh',
     '/fix-nginx':    'fix-nginx.sh',
-    '/fix-n8n':      'fix-n8n.sh',
+    '/fix-php-fpm':  'fix-php-fpm.sh',
+    '/fix-mysql':    'fix-mysql.sh',
     '/fix-services': 'fix-services.sh',
-    '/clear-logs':   'clear-logs.sh',
+    '/fix-n8n':      'fix-n8n.sh',         # optional — if user runs n8n
+    # Status & diagnostics
     '/status':       'check-status.sh',
     '/status-brief': 'status-brief.sh',
-    '/check-ports':  'check-ports.sh',
     '/disk':         'check-disk.sh',
+    '/check-ports':  'check-ports.sh',
+    '/top-procs':    'top-procs.sh',
+    # Logs
+    '/logs-nginx':   'logs-nginx.sh',
+    '/logs-php':     'logs-php.sh',
+    # SSL
+    '/ssl-status':   'ssl-status.sh',
+    '/renew-ssl':    'renew-ssl.sh',
+    # Maintenance
+    '/clear-logs':   'clear-logs.sh',
 }
 
 class Handler(BaseHTTPRequestHandler):

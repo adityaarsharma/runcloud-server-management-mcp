@@ -67,11 +67,18 @@ Endpoints, all `POST` and all bearer-token authenticated:
 | `/status-brief` | One-line summary for inline taps |
 | `/fix` | `scripts/smart-fix.sh` — pick the right fix for the alert |
 | `/fix-nginx` | `scripts/fix-nginx.sh` — restart nginx-rc safely |
-| `/fix-n8n` | n8n service restart |
+| `/fix-php-fpm` | `scripts/fix-php-fpm.sh` — restart any failed PHP-FPM service |
+| `/fix-mysql` | `scripts/fix-mysql.sh` — restart MySQL/MariaDB with OOM context |
 | `/fix-services` | Restart common stuck services (php-fpm, redis, etc.) |
+| `/fix-n8n` | optional — restart n8n if you happen to run it |
+| `/top-procs` | `scripts/top-procs.sh` — top 10 processes by RAM and CPU |
 | `/disk` | Disk usage breakdown, biggest offenders |
 | `/clear-logs` | Truncate large log files (never delete) |
 | `/check-ports` | List listening ports and their owners |
+| `/logs-nginx` | `scripts/logs-nginx.sh` — recent nginx errors with summary |
+| `/logs-php` | `scripts/logs-php.sh` — PHP errors across versions + WP debug.log |
+| `/ssl-status` | `scripts/ssl-status.sh` — SSL expiry per monitored site |
+| `/renew-ssl` | `scripts/renew-ssl.sh` — certbot renew + nginx reload |
 
 Every call needs `Authorization: Bearer $FIX_SERVER_TOKEN`. Mismatched tokens return 401.
 
@@ -83,8 +90,16 @@ Every call needs `Authorization: Bearer $FIX_SERVER_TOKEN`. Mismatched tokens re
 | `/disk` | Disk usage and top offenders | fix-server `/disk` |
 | `/ports` | Listening ports table | `/check-ports` |
 | `/fix` | Pick a fix from a button menu | router |
-| `/fixnginx` | Restart nginx-rc | `fix-nginx.sh` |
-| `/fixn8n` | Restart n8n | `/fix-n8n` |
+| `/nginx` | Restart nginx-rc | `fix-nginx.sh` |
+| `/phpfpm` | Restart PHP-FPM (any version) | `fix-php-fpm.sh` |
+| `/mysql` | Restart MySQL / MariaDB | `fix-mysql.sh` |
+| `/services` | Restart all common services | `fix-services.sh` |
+| `/n8n` | Restart n8n if you run it | `fix-n8n.sh` |
+| `/top` | Top 10 processes | `top-procs.sh` |
+| `/lognginx` | nginx error log + summary | `logs-nginx.sh` |
+| `/logphp` | PHP error log + top errors | `logs-php.sh` |
+| `/ssl` | SSL expiry per site | `ssl-status.sh` |
+| `/renewssl` | Run certbot renew | `renew-ssl.sh` |
 | `/clearlogs` | Truncate log files >50MB | `/clear-logs` |
 | `/mute 2h` | Silence alerts for 2 hours | mute file |
 | `/unmute` | Resume alerts | mute file |

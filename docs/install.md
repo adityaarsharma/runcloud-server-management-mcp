@@ -2,6 +2,21 @@
 
 Perch installs in two flavours: a Claude Code MCP for hands-on debugging, and a Telegram bot for 24/7 alerts. Pick one, or run both — they share the same brain and play nicely together.
 
+**The fastest path** — interactive wizard:
+
+```bash
+git clone https://github.com/adityaarsharma/perch.git
+cd perch
+bash scripts/setup.sh
+```
+
+The wizard walks you through: master key generation → RunCloud API key → Claude Code MCP config → Telegram bot setup → Slack webhook (optional) → server SSH credentials (one per server) → cron-based automation rules → systemd service.
+
+Continue reading for the manual install paths, or skip to:
+- [docs/automation.md](./automation.md) — the 14 automation rules
+- [docs/master-key.md](./master-key.md) — keep your vault safe
+- [docs/safety.md](./safety.md) — what Perch will and won't auto-fix
+
 ## Prerequisites
 
 | Requirement | Why | Notes |
@@ -137,21 +152,38 @@ arch -arm64 npm run build
 
 Pull, rebuild, restart:
 
+**Recommended:** use the bundled update script. It pulls, rebuilds, restarts services, rolls back on build failure, and notifies your Telegram (and Slack if configured) with a changelog.
+
+```bash
+cd ~/perch
+bash scripts/update.sh
+```
+
+Manual update (equivalent):
+
 ```bash
 cd ~/perch
 git pull
 npm install
 npm run build
-sudo systemctl restart perch-bot perch-fix-server
+sudo systemctl restart perch perch-bot 2>/dev/null
 ```
-
-If you didn't install the systemd units, kill and restart `bot.py` / `fix-server.py` manually.
 
 ## Uninstalling
 
+**Recommended:** use the bundled uninstall script. It asks before each destructive step and offers to back up your encrypted vault first:
+
 ```bash
-sudo systemctl disable --now perch-bot perch-fix-server
-sudo rm /etc/systemd/system/perch-bot.service /etc/systemd/system/perch-fix-server.service
+cd ~/perch
+bash scripts/uninstall.sh
+```
+
+Manual uninstall:
+
+```bash
+sudo systemctl disable --now perch perch-bot 2>/dev/null
+sudo rm -f /etc/systemd/system/perch.service /etc/systemd/system/perch-bot.service
+crontab -l | grep -v "$HOME/perch" | crontab -    # remove monitor cron
 rm -rf ~/perch ~/.perch
 ```
 
@@ -159,6 +191,8 @@ The `~/.perch` directory holds the brain (SQLite) and the encrypted vault. Delet
 
 ## Next steps
 
+- [automation.md](./automation.md) — the 14 monitoring rules and how to tune them
+- [master-key.md](./master-key.md) — keep your vault safe
 - [telegram.md](./telegram.md) — wire up the bot, commands, and inline buttons
 - [slack.md](./slack.md) — pipe alerts into a team channel
 - [safety.md](./safety.md) — what Perch will and won't do on your servers
