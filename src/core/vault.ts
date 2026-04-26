@@ -13,7 +13,7 @@
  */
 
 import { createCipheriv, createDecipheriv, randomBytes, createHash } from "crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, copyFileSync, openSync, fsyncSync, closeSync } from "fs";
 import { homedir } from "os";
 import { dirname, join } from "path";
 
@@ -110,8 +110,14 @@ function saveVault(v: VaultFile): void {
   const path = vaultPath();
   const dir = dirname(path);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true, mode: 0o700 });
-  // 0600 — only owner can read
-  writeFileSync(path, JSON.stringify(v, null, 2), { mode: 0o600 });
+  // SECURITY [C3]: atomic write — write to .tmp, fsync, then rename.
+  // Prevents corruption if process crashes mid-write.
+  const tmp = path + ".tmp";
+  writeFileSync(tmp, JSON.stringify(v, null, 2), { mode: 0o600 });
+  // fsync so contents hit the disk before rename
+  const fd = openSync(tmp, "r");
+  try { fsyncSync(fd); } finally { closeSync(fd); }
+  renameSync(tmp, path);
 }
 
 // ─── Public API ──────────────────────────────────────────────────────────────
@@ -157,21 +163,31 @@ export function vaultExists(): boolean {
  * before calling this function.
  */
 export function vaultRotate(oldMasterKey: string): { rotated: number } {
+  // SECURITY [C3]: atomic rotation with backup + plaintext zeroing.
   const oldKey = createHash("sha256").update(oldMasterKey).digest();
+  const path = vaultPath();
+  // 1. Back up the existing vault before any mutation.
+  if (existsSync(path)) {
+    copyFileSync(path, path + ".bak");
+  }
+  // 2. Decrypt all entries into ephemeral buffers; collect re-encrypted blobs.
   const v = loadVault();
+  const newEntries: Record<string, EncryptedBlob> = {};
   let rotated = 0;
   for (const [id, blob] of Object.entries(v.entries)) {
-    // Decrypt with old key
     const iv = Buffer.from(blob.iv, "base64");
     const tag = Buffer.from(blob.tag, "base64");
     const ct = Buffer.from(blob.ct, "base64");
     const decipher = createDecipheriv(ALGO, oldKey, iv);
     decipher.setAuthTag(tag);
-    const pt = Buffer.concat([decipher.update(ct), decipher.final()]).toString("utf8");
-    // Re-encrypt with current PERCH_MASTER_KEY (already loaded via deriveKey)
-    v.entries[id] = encrypt(pt);
+    const ptBuf = Buffer.concat([decipher.update(ct), decipher.final()]);
+    const pt = ptBuf.toString("utf8");
+    newEntries[id] = encrypt(pt);
+    // Zero plaintext buffers so GC can't leave secrets in memory unnecessarily.
+    ptBuf.fill(0);
     rotated++;
   }
-  saveVault(v);
+  // 3. Atomic swap (saveVault uses tmp+fsync+rename internally).
+  saveVault({ schema: 1, entries: newEntries });
   return { rotated };
 }

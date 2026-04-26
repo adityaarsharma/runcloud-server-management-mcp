@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import { existsSync, mkdirSync } from "fs";
 import { homedir } from "os";
 import { join, dirname } from "path";
+import { safeForOutput } from "./redact.js";
 
 // ─── INTERFACES ───────────────────────────────────────────────────────────────
 
@@ -203,9 +204,162 @@ export function initBrain(dbPath?: string): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_problems_type    ON problems(type);
     CREATE INDEX IF NOT EXISTS idx_webapps_server   ON webapps(server_id);
     CREATE INDEX IF NOT EXISTS idx_webapps_domain   ON webapps(domain);
+
+    -- Action log for undo + audit (every destructive op records here)
+    CREATE TABLE IF NOT EXISTS actions_log (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      ts           TEXT NOT NULL DEFAULT (datetime('now')),
+      action_type  TEXT NOT NULL,            -- e.g., wp_plugin_deactivate
+      target       TEXT,                      -- domain or server identifier
+      args         TEXT NOT NULL DEFAULT '{}',-- JSON of inputs
+      before_state TEXT,                      -- JSON of pre-action state (for undo)
+      result       TEXT,                      -- JSON of result
+      ok           INTEGER NOT NULL DEFAULT 1,
+      undone       INTEGER NOT NULL DEFAULT 0,
+      undone_at    TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_actions_ts ON actions_log(ts DESC);
+
+    -- FTS5 mirror for fast search across problems (root_cause + raw_log_snippet)
+    CREATE VIRTUAL TABLE IF NOT EXISTS problems_fts USING fts5(
+      root_cause, raw_log_snippet,
+      content='problems', content_rowid='id'
+    );
+    -- Triggers keep FTS in sync
+    CREATE TRIGGER IF NOT EXISTS problems_fts_ai AFTER INSERT ON problems BEGIN
+      INSERT INTO problems_fts(rowid, root_cause, raw_log_snippet)
+      VALUES (new.id, new.root_cause, coalesce(new.raw_log_snippet, ''));
+    END;
+    CREATE TRIGGER IF NOT EXISTS problems_fts_ad AFTER DELETE ON problems BEGIN
+      INSERT INTO problems_fts(problems_fts, rowid, root_cause, raw_log_snippet)
+      VALUES ('delete', old.id, old.root_cause, coalesce(old.raw_log_snippet, ''));
+    END;
+    CREATE TRIGGER IF NOT EXISTS problems_fts_au AFTER UPDATE ON problems BEGIN
+      INSERT INTO problems_fts(problems_fts, rowid, root_cause, raw_log_snippet)
+      VALUES ('delete', old.id, old.root_cause, coalesce(old.raw_log_snippet, ''));
+      INSERT INTO problems_fts(rowid, root_cause, raw_log_snippet)
+      VALUES (new.id, new.root_cause, coalesce(new.raw_log_snippet, ''));
+    END;
   `);
 
   return db;
+}
+
+// ─── ACTIONS LOG (undo + audit trail) ─────────────────────────────────────────
+
+export interface ActionLogInput {
+  action_type: string;
+  target?: string;
+  args?: Record<string, unknown>;
+  before_state?: Record<string, unknown> | null;
+  result?: Record<string, unknown> | null;
+  ok?: boolean;
+}
+
+export interface ActionLogEntry {
+  id: number;
+  ts: string;
+  action_type: string;
+  target: string | null;
+  args: Record<string, unknown>;
+  before_state: Record<string, unknown> | null;
+  result: Record<string, unknown> | null;
+  ok: boolean;
+  undone: boolean;
+  undone_at: string | null;
+}
+
+export function logAction(db: Database.Database, data: ActionLogInput): number {
+  const stmt = db.prepare(`
+    INSERT INTO actions_log (action_type, target, args, before_state, result, ok)
+    VALUES (@action_type, @target, @args, @before_state, @result, @ok)
+    RETURNING id
+  `);
+  const row = stmt.get({
+    action_type: data.action_type,
+    target: data.target ?? null,
+    args: JSON.stringify(safeForOutput(JSON.stringify(data.args ?? {}))),
+    before_state: data.before_state ? JSON.stringify(data.before_state) : null,
+    result: data.result ? JSON.stringify(data.result) : null,
+    ok: (data.ok ?? true) ? 1 : 0,
+  }) as { id: number };
+  return row.id;
+}
+
+export function getRecentActions(db: Database.Database, limit = 10): ActionLogEntry[] {
+  const rows = db.prepare(`SELECT * FROM actions_log ORDER BY ts DESC LIMIT ?`).all(limit) as Array<{
+    id: number; ts: string; action_type: string; target: string | null;
+    args: string; before_state: string | null; result: string | null;
+    ok: number; undone: number; undone_at: string | null;
+  }>;
+  return rows.map((r) => ({
+    id: r.id, ts: r.ts, action_type: r.action_type, target: r.target,
+    args: JSON.parse(r.args || "{}"),
+    before_state: r.before_state ? JSON.parse(r.before_state) : null,
+    result: r.result ? JSON.parse(r.result) : null,
+    ok: r.ok === 1, undone: r.undone === 1, undone_at: r.undone_at,
+  }));
+}
+
+export function getActionForUndo(db: Database.Database, actionId?: number): ActionLogEntry | null {
+  const sql = actionId
+    ? `SELECT * FROM actions_log WHERE id = ? AND undone = 0`
+    : `SELECT * FROM actions_log WHERE undone = 0 ORDER BY ts DESC LIMIT 1`;
+  const row = (actionId ? db.prepare(sql).get(actionId) : db.prepare(sql).get()) as
+    | { id: number; ts: string; action_type: string; target: string | null;
+        args: string; before_state: string | null; result: string | null;
+        ok: number; undone: number; undone_at: string | null; }
+    | undefined;
+  if (!row) return null;
+  return {
+    id: row.id, ts: row.ts, action_type: row.action_type, target: row.target,
+    args: JSON.parse(row.args || "{}"),
+    before_state: row.before_state ? JSON.parse(row.before_state) : null,
+    result: row.result ? JSON.parse(row.result) : null,
+    ok: row.ok === 1, undone: row.undone === 1, undone_at: row.undone_at,
+  };
+}
+
+export function markActionUndone(db: Database.Database, actionId: number): void {
+  db.prepare(`UPDATE actions_log SET undone = 1, undone_at = datetime('now') WHERE id = ?`).run(actionId);
+}
+
+// ─── PROBLEMS SEARCH (FTS5-backed) ───────────────────────────────────────────
+
+export interface ProblemSearchHit {
+  id: number;
+  ts: string;
+  type: string;
+  root_cause: string;
+  fix_applied: string | null;
+  fix_worked: boolean | null;
+  domain: string | null;
+}
+
+export function searchProblems(db: Database.Database, query: string, limit = 20): ProblemSearchHit[] {
+  // FTS5 sometimes errors on bare colons / dashes — sanitize to prefix words.
+  const safe = query.replace(/[^\w\s]/g, " ").trim();
+  if (!safe) return [];
+  const ftsQuery = safe.split(/\s+/).map((w) => `${w}*`).join(" ");
+  const rows = db.prepare(`
+    SELECT p.id, p.detected_at AS ts, p.type, p.root_cause, p.fix_applied, p.fix_worked,
+           w.domain
+    FROM problems_fts f
+    JOIN problems p ON p.id = f.rowid
+    LEFT JOIN webapps w ON w.id = p.webapp_id
+    WHERE problems_fts MATCH ?
+    ORDER BY p.detected_at DESC
+    LIMIT ?
+  `).all(ftsQuery, limit) as Array<{
+    id: number; ts: string; type: string; root_cause: string;
+    fix_applied: string | null; fix_worked: number | null; domain: string | null;
+  }>;
+  return rows.map((r) => ({
+    id: r.id, ts: r.ts, type: r.type, root_cause: r.root_cause,
+    fix_applied: r.fix_applied,
+    fix_worked: r.fix_worked === null ? null : r.fix_worked === 1,
+    domain: r.domain,
+  }));
 }
 
 // ─── SERVER ───────────────────────────────────────────────────────────────────
@@ -318,14 +472,19 @@ export function logProblem(db: Database.Database, data: ProblemInput): number {
     RETURNING id
   `);
 
+  // SECURITY [M6]: redact raw_log_snippet + root_cause before persisting.
+  // brain.db sits unencrypted on disk; never let secrets land in it.
+  const cleanRoot = safeForOutput(data.root_cause);
+  const cleanSnippet = data.raw_log_snippet ? safeForOutput(data.raw_log_snippet) : null;
+
   const row = stmt.get({
     server_id: data.server_id ?? null,
     webapp_id: data.webapp_id ?? null,
     type: data.type,
-    root_cause: data.root_cause,
+    root_cause: cleanRoot,
     fix_applied: data.fix_applied ?? null,
     fix_worked: data.fix_worked !== undefined ? (data.fix_worked ? 1 : 0) : null,
-    raw_log_snippet: data.raw_log_snippet ?? null,
+    raw_log_snippet: cleanSnippet,
   }) as { id: number };
 
   return row.id;

@@ -250,7 +250,7 @@ perch/
 │   │   ├── gateway.ts             ← Alert formatter (friendly tone, multi-channel)
 │   │   └── ssh-enhanced.ts        ← SSH with password + private key + WP-CLI helper
 │   └── modules/
-│       └── wordpress/             ← The WordPress Killer Series
+│       └── wordpress/             ← The WordPress Audit Modules
 │           ├── db.ts              ← Autoload audit, transient cleanup, orphan detection
 │           ├── plugins.ts         ← Plugin audit + Wordfence Intelligence CVE scan
 │           ├── security.ts        ← 12-check hardening, scored 0–100
@@ -278,7 +278,7 @@ perch/
 
 ---
 
-## The WordPress Killer Series — What Perch Knows About Your Sites
+## WordPress Audit Modules — what Perch sees on your sites
 
 No plugin needed on the WordPress side. Everything runs via SSH and WP-CLI. RunCloud-aware (knows about `nginx-rc`, `/etc/nginx-rc/`, per-app users at `/home/{user}/webapps/`).
 
@@ -393,7 +393,7 @@ No "Pro tier." No license keys. No telemetry by default. No SaaS dependency. **F
 
 **Now (April 2026)** — Sprint 1 shipped
 - ✅ MCP server with 150+ tools
-- ✅ WordPress Killer Series (7 deep modules)
+- ✅ WordPress Audit Modules (7 deep modules)
 - ✅ SQLite self-learning brain
 - ✅ Telegram bot with inline buttons + fix-server
 - ✅ Slack alert delivery via webhook

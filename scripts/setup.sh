@@ -351,6 +351,64 @@ if ask_yn "Add servers now?" "y"; then
 fi
 echo
 
+# ── 6.4 HTTP API token + service (for Niyati / external integrations) ────────
+
+bold "Step 6.4 — Perch HTTP API (optional)"
+echo "  Exposes /perch_* tools as Bearer-authenticated HTTP endpoints on 127.0.0.1:3012."
+echo "  Use it from Niyati, n8n, custom scripts — anywhere that speaks HTTPS."
+echo
+
+if ask_yn "Generate PERCH_API_TOKEN and prepare the HTTP API service?" "y"; then
+  EXISTING_API_TOKEN="$(env_get PERCH_API_TOKEN)"
+  if [ -z "$EXISTING_API_TOKEN" ]; then
+    if command -v openssl >/dev/null 2>&1; then
+      API_TOKEN="$(openssl rand -hex 32)"
+    else
+      API_TOKEN="$(node -e 'console.log(require("crypto").randomBytes(32).toString("hex"))')"
+    fi
+    env_set PERCH_API_TOKEN "$API_TOKEN"
+    env_set PERCH_API_HOST "127.0.0.1"
+    env_set PERCH_API_PORT "3012"
+    ok "Generated PERCH_API_TOKEN (saved to $ENV_FILE)"
+    echo
+    yellow "  Use this token as 'Authorization: Bearer <token>' from any client (Niyati included):"
+    echo  "    PERCH_API_TOKEN=$API_TOKEN"
+  else
+    ok "PERCH_API_TOKEN already set"
+  fi
+
+  # systemd unit for the API service (separate from the MCP service)
+  API_SERVICE_FILE="/tmp/perch-api.service"
+  cat > "$API_SERVICE_FILE" <<EOF
+[Unit]
+Description=Perch — HTTP API
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=$PERCH_DIR
+EnvironmentFile=$ENV_FILE
+ExecStart=$(which node) $PERCH_DIR/dist/api/server.js
+Restart=always
+RestartSec=5
+User=$(whoami)
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=$PERCH_HOME
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  ok "API service unit at $API_SERVICE_FILE"
+  echo "    To install (requires sudo):"
+  echo "      sudo mv $API_SERVICE_FILE /etc/systemd/system/perch-api.service"
+  echo "      sudo systemctl daemon-reload"
+  echo "      sudo systemctl enable --now perch-api"
+  echo "      curl http://127.0.0.1:3012/health"
+fi
+echo
+
 # ── 6.5 Install automation rules cron (monitor.sh) ────────────────────────────
 
 bold "Step 6.5 — Install Automation Rules"

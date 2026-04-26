@@ -193,10 +193,10 @@ For solo operators, a DM is fine. For agencies, use a group:
 
 ## Alerts from `monitor.sh`
 
-`scripts/monitor.sh` runs every 10 minutes via cron:
+`telegram-bot/monitor.sh` runs every 5 minutes via cron and evaluates 14 rules:
 
 ```
-*/10 * * * * /home/runcloud/perch/telegram-bot/scripts/monitor.sh
+*/5 * * * * /home/runcloud/perch/telegram-bot/monitor.sh >> /tmp/perch-monitor.log 2>&1
 ```
 
 Each run:
@@ -259,5 +259,7 @@ crontab -l | grep monitor.sh
 ## Next steps
 
 - [safety.md](./safety.md) — exactly what the bot will and won't do without a confirm
-- [runcloud.md](../runcloud.md) — RunCloud-specific behaviours and webapp context
+- [runcloud.md](./runcloud.md) — RunCloud-specific behaviours and webapp context
+- [automation.md](./automation.md) — the 14 monitoring rules, thresholds, and customization
+- [safety.md](./safety.md) — auto-fix whitelist and confirm gates
 - [slack.md](./slack.md) — mirror or replace Telegram with Slack

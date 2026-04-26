@@ -116,12 +116,17 @@ send_alert() {
   text=$(printf '%s *%s — %s*\n%s\n\n%s\n\n_Server: %s · %s_' \
     "$emoji" "$SERVER_NAME" "$title" "$server_ip" "$body" "$SERVER_NAME" "$timestamp")
 
+  # SECURITY [H5]: keep BOT_TOKEN out of curl's argv (visible in `ps`).
+  # Build the full URL into a curl --config block fed via stdin.
+  local url_config
+  url_config="$(printf 'url = "https://api.telegram.org/bot%s/sendMessage"\n' "$BOT_TOKEN")"
+
   jq -n \
     --arg c "$CHAT_ID" \
     --arg t "$text" \
     --argjson k "{\"inline_keyboard\":$buttons}" \
     '{"chat_id":$c,"text":$t,"parse_mode":"Markdown","reply_markup":$k}' \
-  | curl -sf -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+  | curl -sf -X POST -K <(printf '%s\n' "$url_config") \
       -H 'Content-Type: application/json' -d @- > /dev/null 2>&1 || true
 }
 

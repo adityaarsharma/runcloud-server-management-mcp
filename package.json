@@ -36,8 +36,12 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
+    "api": "node dist/api/server.js",
+    "api:dev": "tsx src/api/server.ts",
     "dev": "tsx src/index.ts",
     "init": "bash scripts/install.sh",
+    "setup": "bash scripts/setup.sh",
+    "update": "bash scripts/update.sh",
     "vault": "tsx scripts/perch-vault.ts",
     "import-runcloud": "tsx scripts/import-runcloud-servers.ts"
   },

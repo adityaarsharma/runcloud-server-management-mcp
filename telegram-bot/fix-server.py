@@ -3,7 +3,7 @@
 Fix Server — Local HTTP API for self-healing actions
 Listens on 127.0.0.1 only. Called by bot.py and monitor.sh buttons.
 """
-import os, subprocess, json, sys
+import os, subprocess, json, sys, hmac
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 
@@ -19,8 +19,14 @@ def load_env():
 load_env()
 
 TOKEN   = os.environ.get('FIX_SERVER_TOKEN', '')
+# SECURITY [H4]: enforce minimum token entropy to block weak shared secrets.
+MIN_TOKEN_LEN = 32
 if not TOKEN:
     print("FATAL: FIX_SERVER_TOKEN is required. Set it in .env", flush=True)
+    sys.exit(1)
+if len(TOKEN) < MIN_TOKEN_LEN:
+    print(f"FATAL: FIX_SERVER_TOKEN must be at least {MIN_TOKEN_LEN} chars (current: {len(TOKEN)}).", flush=True)
+    print("       Generate a strong one: openssl rand -hex 32", flush=True)
     sys.exit(1)
 
 try:
@@ -29,9 +35,16 @@ except ValueError:
     print("FATAL: FIX_SERVER_PORT must be a number", flush=True)
     sys.exit(1)
 
-HOST    = os.environ.get('FIX_SERVER_HOST', '127.0.0.1')
-if HOST != '127.0.0.1':
-    print(f"WARNING: Fix server binding to {HOST} - ensure firewall blocks port {PORT} from external access", flush=True)
+# SECURITY [H4]: refuse non-loopback bind unless explicitly opted in via env flag.
+HOST = os.environ.get('FIX_SERVER_HOST', '127.0.0.1')
+ALLOW_PUBLIC = os.environ.get('PERCH_ALLOW_PUBLIC_FIX', '0') == '1'
+if HOST not in ('127.0.0.1', '::1', 'localhost'):
+    if not ALLOW_PUBLIC:
+        print(f"FATAL: refusing to bind to {HOST}.", flush=True)
+        print("       Set PERCH_ALLOW_PUBLIC_FIX=1 to override (and ensure firewall blocks port).", flush=True)
+        sys.exit(1)
+    print(f"WARNING: binding to {HOST} — ensure firewall blocks port {PORT} from public access.", flush=True)
+
 SCRIPTS = Path(__file__).parent / 'scripts'
 
 ROUTES = {
@@ -60,8 +73,10 @@ ROUTES = {
 
 class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
-        # Auth check
-        if self.headers.get('Authorization') != f'Bearer {TOKEN}':
+        # SECURITY [H4]: constant-time auth comparison to defeat timing attacks.
+        provided = self.headers.get('Authorization', '')
+        expected = f'Bearer {TOKEN}'
+        if not hmac.compare_digest(provided, expected):
             print(f'[fix] AUTH FAILED from {self.client_address[0]}', flush=True)
             self.send_response(401)
             self.end_headers()

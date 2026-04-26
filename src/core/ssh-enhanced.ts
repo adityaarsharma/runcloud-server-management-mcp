@@ -1,7 +1,55 @@
 import { Client as SSHClient, ConnectConfig } from "ssh2";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 const MAX_OUTPUT_BYTES = 1_048_576; // 1 MB
 const TRUNCATION_MSG = "\n[OUTPUT TRUNCATED AT 1MB]";
+
+// ─── SECURITY [C2]: TOFU host fingerprint verification ──────────────────────
+
+const HOST_KEYS_PATH = join(process.env.PERCH_VAULT_DIR ?? join(homedir(), ".perch"), "known_hosts.json");
+
+function loadKnownHosts(): Record<string, string> {
+  if (!existsSync(HOST_KEYS_PATH)) return {};
+  try { return JSON.parse(readFileSync(HOST_KEYS_PATH, "utf8")) as Record<string, string>; }
+  catch { return {}; }
+}
+
+function saveKnownHosts(map: Record<string, string>): void {
+  const dir = join(homedir(), ".perch");
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true, mode: 0o700 });
+  writeFileSync(HOST_KEYS_PATH, JSON.stringify(map, null, 2), { mode: 0o600 });
+}
+
+/**
+ * Returns a host-key verifier that:
+ * - On first connection: pins the fingerprint and accepts (TOFU)
+ * - On later connections: rejects if the fingerprint changed (MITM detection)
+ *
+ * Set PERCH_SSH_TRUST_NEW_HOSTS=0 to require pre-pinned fingerprints (strict mode).
+ */
+function makeHostVerifier(host: string): (key: Buffer) => boolean {
+  return (key: Buffer): boolean => {
+    const fp = createHash("sha256").update(key).digest("hex");
+    const known = loadKnownHosts();
+    if (process.env.PERCH_SSH_TRUST_NEW_HOSTS === "0" && !known[host]) {
+      console.error(`[perch ssh] strict mode: host ${host} not pre-pinned, refusing`);
+      return false;
+    }
+    if (known[host]) {
+      if (known[host] !== fp) {
+        console.error(`[perch ssh] FINGERPRINT MISMATCH for ${host} — possible MITM, refusing`);
+        return false;
+      }
+      return true;
+    }
+    known[host] = fp;
+    saveKnownHosts(known);
+    return true;
+  };
+}
 
 // ─── INTERFACES ───────────────────────────────────────────────────────────────
 
@@ -42,6 +90,8 @@ function buildConnectConfig(opts: SSHOptions): ConnectConfig {
     port: opts.port ?? 22,
     username: opts.username,
     readyTimeout: opts.timeoutMs ?? 30000,
+    // SECURITY [C2]: real TOFU host verification
+    hostVerifier: makeHostVerifier(opts.host),
   };
 
   if (opts.auth.type === "password") {

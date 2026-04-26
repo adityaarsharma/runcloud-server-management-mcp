@@ -99,7 +99,7 @@ chmod +x setup.sh
 | Fix-server port | Default `3011`, change only if it clashes |
 | SSH user/host (optional) | For multi-server mode |
 
-The script writes `.env`, installs Python deps in a venv, registers a `monitor.sh` cron job (every 10 minutes), and starts both processes.
+The script writes `.env`, installs Python deps in a venv, registers a `monitor.sh` cron job (every 5 minutes), and starts both processes.
 
 Verify by sending `/status` in your Telegram chat. You should get a server health card within a few seconds.
 
