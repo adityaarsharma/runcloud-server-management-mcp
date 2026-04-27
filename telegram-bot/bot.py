@@ -417,6 +417,13 @@ def handle_callback(cb):
 
     answer_cb(cb_id)
 
+    # Normalize callback schema — strip "perch:" prefix.
+    # Both old (`fix-nginx`) and new (`perch:fix-nginx`) values route here.
+    # The prefix exists so foreign bots (Niyati, ChatGPT) can claim Perch callbacks
+    # without colliding with their own. See docs/callback-schema.md.
+    if data.startswith('perch:') and data != 'perch:ack':
+        data = data[len('perch:'):]
+
     # Reboot confirm / cancel
     if data == 'reboot_confirm':
         ts = pending_reboot.get(chat_id, 0)

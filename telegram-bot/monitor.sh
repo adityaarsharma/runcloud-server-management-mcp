@@ -165,13 +165,13 @@ SESSEOF
 }
 
 # Common button sets
-BTN_FIX_STATUS='[[{"text":"🔧 Smart Fix","callback_data":"fix"},{"text":"📊 Status","callback_data":"status"}],[{"text":"🔇 Mute 1h","callback_data":"mute_1h"},{"text":"✅ Ack","callback_data":"perch:ack"}]]'
-BTN_NGINX='[[{"text":"🌐 Restart nginx","callback_data":"fix-nginx"},{"text":"📋 Logs","callback_data":"logs-nginx"}],[{"text":"✅ Ack","callback_data":"perch:ack"}]]'
-BTN_DISK='[[{"text":"🧹 Clear logs","callback_data":"clear-logs"},{"text":"💾 Show disk","callback_data":"disk"}],[{"text":"✅ Ack","callback_data":"perch:ack"}]]'
-BTN_RAM='[[{"text":"🔧 Smart Fix","callback_data":"fix"},{"text":"📊 Top Procs","callback_data":"top-procs"}],[{"text":"✅ Ack","callback_data":"perch:ack"}]]'
-BTN_PHP='[[{"text":"🔄 Restart PHP-FPM","callback_data":"fix-php-fpm"},{"text":"📋 PHP errors","callback_data":"logs-php"}],[{"text":"✅ Ack","callback_data":"perch:ack"}]]'
-BTN_DB='[[{"text":"🔄 Restart MySQL","callback_data":"fix-mysql"},{"text":"📊 Status","callback_data":"status"}],[{"text":"✅ Ack","callback_data":"perch:ack"}]]'
-BTN_SSL='[[{"text":"🔄 Renew SSL","callback_data":"renew-ssl"},{"text":"📋 SSL Status","callback_data":"ssl-status"}],[{"text":"✅ Ack","callback_data":"perch:ack"}]]'
+BTN_FIX_STATUS='[[{"text":"🔧 Smart Fix","callback_data":"perch:fix"},{"text":"📊 Status","callback_data":"perch:status"}],[{"text":"🔇 Mute 1h","callback_data":"perch:mute_1h"},{"text":"✅ Ack","callback_data":"perch:ack"}]]'
+BTN_NGINX='[[{"text":"🌐 Restart nginx","callback_data":"perch:fix-nginx"},{"text":"📋 Logs","callback_data":"perch:logs-nginx"}],[{"text":"✅ Ack","callback_data":"perch:ack"}]]'
+BTN_DISK='[[{"text":"🧹 Clear logs","callback_data":"perch:clear-logs"},{"text":"💾 Show disk","callback_data":"perch:disk"}],[{"text":"✅ Ack","callback_data":"perch:ack"}]]'
+BTN_RAM='[[{"text":"🔧 Smart Fix","callback_data":"perch:fix"},{"text":"📊 Top Procs","callback_data":"perch:top-procs"}],[{"text":"✅ Ack","callback_data":"perch:ack"}]]'
+BTN_PHP='[[{"text":"🔄 Restart PHP-FPM","callback_data":"perch:fix-php-fpm"},{"text":"📋 PHP errors","callback_data":"perch:logs-php"}],[{"text":"✅ Ack","callback_data":"perch:ack"}]]'
+BTN_DB='[[{"text":"🔄 Restart MySQL","callback_data":"perch:fix-mysql"},{"text":"📊 Status","callback_data":"perch:status"}],[{"text":"✅ Ack","callback_data":"perch:ack"}]]'
+BTN_SSL='[[{"text":"🔄 Renew SSL","callback_data":"perch:renew-ssl"},{"text":"📋 SSL Status","callback_data":"perch:ssl-status"}],[{"text":"✅ Ack","callback_data":"perch:ack"}]]'
 BTN_ACK='[[{"text":"✅ Acknowledge","callback_data":"perch:ack"}]]'
 
 # ────────────────────────────────────────────────────────────────────────────────
