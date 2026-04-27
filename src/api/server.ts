@@ -48,6 +48,15 @@ import { scanMalware } from "../modules/wordpress/malware.js";
 import { auditThumbnails, cleanThumbnails } from "../modules/wordpress/thumbnails.js";
 import { profilePlugins } from "../modules/wordpress/plugins-perf.js";
 import { auditUnusedPlugins, applyPluginCleanup } from "../modules/wordpress/plugins-cleanup.js";
+import { auditMediaOrphans } from "../modules/wordpress/media-orphans.js";
+import { auditRevisions, cleanRevisions } from "../modules/wordpress/revisions.js";
+import { auditTranslations, cleanTranslations } from "../modules/wordpress/translations.js";
+import { auditHtaccess } from "../modules/wordpress/htaccess.js";
+import { getCoreStatus, applyCoreUpdate } from "../modules/wordpress/core.js";
+import { searchReplace } from "../modules/wordpress/search-replace.js";
+import { auditCron, runCronEvents, flushRewrites } from "../modules/wordpress/cron.js";
+import { auditSsl } from "../modules/wordpress/ssl.js";
+import { auditWpConfig } from "../modules/wordpress/wp-config.js";
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
@@ -270,6 +279,41 @@ const HANDLERS: Record<string, (args: Record<string, unknown>) => Promise<unknow
       a.inactiveDaysThreshold ? Number(a.inactiveDaysThreshold) : undefined,
     );
   },
+  "wp.media_orphans_audit": async (a) => {
+    const opts = buildSshOpts(a as unknown as SshAuthArgs);
+    return await auditMediaOrphans(
+      opts, String(a.wpPath), String(a.wpUser),
+      a.sampleLimit ? Number(a.sampleLimit) : undefined,
+    );
+  },
+  "wp.revisions_audit": async (a) => {
+    const opts = buildSshOpts(a as unknown as SshAuthArgs);
+    return await auditRevisions(opts, String(a.wpPath), String(a.wpUser));
+  },
+  "wp.translations_audit": async (a) => {
+    const opts = buildSshOpts(a as unknown as SshAuthArgs);
+    return await auditTranslations(opts, String(a.wpPath), String(a.wpUser));
+  },
+  "wp.htaccess_audit": async (a) => {
+    const opts = buildSshOpts(a as unknown as SshAuthArgs);
+    return await auditHtaccess(opts, String(a.wpPath));
+  },
+  "wp.core_status": async (a) => {
+    const opts = buildSshOpts(a as unknown as SshAuthArgs);
+    return await getCoreStatus(opts, String(a.wpPath), String(a.wpUser));
+  },
+  "wp.cron_audit": async (a) => {
+    const opts = buildSshOpts(a as unknown as SshAuthArgs);
+    return await auditCron(opts, String(a.wpPath), String(a.wpUser));
+  },
+  "wp.ssl_audit": async (a) => {
+    const opts = buildSshOpts(a as unknown as SshAuthArgs);
+    return await auditSsl(opts, String(a.url));
+  },
+  "wp.wp_config_audit": async (a) => {
+    const opts = buildSshOpts(a as unknown as SshAuthArgs);
+    return await auditWpConfig(opts, String(a.wpPath));
+  },
 
   // ── WordPress mutations (require explicit confirm flag)
   "wp.db_clean": async (a) => {
@@ -333,6 +377,49 @@ const HANDLERS: Record<string, (args: Record<string, unknown>) => Promise<unknow
       action: action as "deactivate" | "uninstall",
       apply: Boolean(a.apply),
     });
+  },
+  "wp.revisions_clean": async (a) => {
+    if (a.confirm !== true) throw new Error("wp.revisions_clean requires confirm:true");
+    const opts = buildSshOpts(a as unknown as SshAuthArgs);
+    return await cleanRevisions(opts, String(a.wpPath), String(a.wpUser), {
+      keepRevisionsPerPost: a.keepRevisionsPerPost ? Number(a.keepRevisionsPerPost) : 5,
+      deleteAutoDrafts: Boolean(a.deleteAutoDrafts),
+      deleteTrashedPosts: Boolean(a.deleteTrashedPosts),
+      deleteSpamComments: Boolean(a.deleteSpamComments),
+      deleteTrashedComments: Boolean(a.deleteTrashedComments),
+      apply: Boolean(a.apply),
+    });
+  },
+  "wp.translations_clean": async (a) => {
+    if (a.confirm !== true) throw new Error("wp.translations_clean requires confirm:true");
+    const opts = buildSshOpts(a as unknown as SshAuthArgs);
+    return await cleanTranslations(opts, String(a.wpPath), String(a.wpUser), Boolean(a.apply));
+  },
+  "wp.core_update": async (a) => {
+    if (a.confirm !== true) throw new Error("wp.core_update requires confirm:true");
+    const opts = buildSshOpts(a as unknown as SshAuthArgs);
+    return await applyCoreUpdate(opts, String(a.wpPath), String(a.wpUser), Boolean(a.apply));
+  },
+  "wp.search_replace": async (a) => {
+    if (a.confirm !== true) throw new Error("wp.search_replace requires confirm:true");
+    const opts = buildSshOpts(a as unknown as SshAuthArgs);
+    return await searchReplace(opts, String(a.wpPath), String(a.wpUser), {
+      search: String(a.search),
+      replace: String(a.replace),
+      skipTables: a.skipTables ? String(a.skipTables) : undefined,
+      apply: Boolean(a.apply),
+      allTables: a.allTables !== false,
+    });
+  },
+  "wp.cron_run": async (a) => {
+    if (a.confirm !== true) throw new Error("wp.cron_run requires confirm:true");
+    const opts = buildSshOpts(a as unknown as SshAuthArgs);
+    return await runCronEvents(opts, String(a.wpPath), String(a.wpUser), a.dueOnly !== false);
+  },
+  "wp.rewrite_flush": async (a) => {
+    if (a.confirm !== true) throw new Error("wp.rewrite_flush requires confirm:true");
+    const opts = buildSshOpts(a as unknown as SshAuthArgs);
+    return await flushRewrites(opts, String(a.wpPath), String(a.wpUser), Boolean(a.hardFlush));
   },
 };
 
