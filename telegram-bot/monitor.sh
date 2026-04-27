@@ -178,7 +178,7 @@ BTN_ACK='[[{"text":"✅ Acknowledge","callback_data":"perch:ack"}]]'
 # ────────────────────────────────────────────────────────────────────────────────
 
 rule_nginx() {
-  local status; status="$(systemctl is-active "$NGINX_SVC" 2>/dev/null || echo unknown)"
+  local status; status="$(systemctl is-active "$NGINX_SVC" 2>/dev/null)"; status="${status:-unknown}"
   if [ "$status" != "active" ]; then
     local error_summary=""
     if [ -f /var/log/nginx-rc/error.log ]; then
@@ -187,8 +187,14 @@ rule_nginx() {
       error_summary="$(tail -3 /var/log/nginx/error.log 2>/dev/null | head -200)"
     fi
 
-    local body="${NGINX_SVC} is currently *${status}*.\nWebsites on this server may be unreachable."
-    [ -n "$error_summary" ] && body="${body}\n\nLast errors:\n\`\`\`\n${error_summary}\n\`\`\`"
+    local body="${NGINX_SVC} is currently *${status}*.
+Websites on this server may be unreachable."
+    [ -n "$error_summary" ] && body="${body}
+
+Last errors:
+\`\`\`
+${error_summary}
+\`\`\`"
 
     send_alert "nginx_down" "critical" "Web server is down" "$body" "$BTN_NGINX"
   fi
