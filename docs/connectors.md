@@ -1,8 +1,8 @@
 # Perch — Connectors
 
-The layer between Perch and you. Telegram, Slack, MCP, CLI, plugins, webhooks.
+**Layer 1** of the 5-layer stack. The top — where Perch talks to you.
 
-Last revised: 2026-04-27 (Perch v2.4 design lock).
+Last revised: 2026-04-27 (Perch v2.5 design lock).
 Sister docs: [`architecture.md`](./architecture.md) · [`monitor.md`](./monitor.md) · [`brain.md`](./brain.md) · [`guardrails.md`](./guardrails.md) · [`specialists.md`](./specialists.md)
 
 ---
@@ -11,164 +11,132 @@ Sister docs: [`architecture.md`](./architecture.md) · [`monitor.md`](./monitor.
 
 > **LLM is the connector.** That's Perch's moat.
 
-Every other server tool in the world ships either a dumb dashboard, a dumb bot, or a dumb webhook. Perch's connector layer **thinks**. It reads probes, it reads brain, it composes a sysadmin-grade explanation, it picks safe fixes — all in your channel of choice.
+Every other server tool ships a dumb dashboard, a dumb bot, or a dumb webhook. Perch's connectors **think** — they read brain, they read live state, they compose explanations, they pick safe fixes — all in your channel of choice.
 
-You don't talk to a bot. You talk to **the most informed sysadmin you've ever hired**, who happens to live in Telegram.
-
----
-
-## Two surfaces, one boundary
-
-The Connectors layer is **two surfaces** with one sharp line:
-
-| Surface | Direction | Reads | Writes |
-|---|---|---|---|
-| **A. Monitor + Notifier** | server → user (push) | Yes — allowlist | **Only** via `Smart Fix` button |
-| **B. AI Conversational** | user ↔ server (pull) | Yes — read-only modules | **Never** |
-
-> **The line: Conversation never mutates. Smart Fix is the only write path.**
-> Both surfaces are LLM-driven. Both are bounded by Guardrails.
-
-This is the only mental model you ever need to remember about Perch.
-
-Surface A is itself **two cooperating layers**:
-
-| Sub-layer | Owns | Doesn't own |
-|---|---|---|
-| **Monitor** | Probes, rules, scheduling, dedup, inbound webhook ingestion. Decides "is there an event worth waking the human?" | LLM calls · message composition · channel formatting · writes |
-| **Notifier** | LLM compose · channel dispatch · Smart Fix runner · button callbacks | What to watch · when to fire |
-
-Monitor is where Perch lives or dies — it's the eyes. It's also where most code lands long-term. So it gets its own layer, its own folder, its own [doc](./monitor.md), and its own evolution path.
+You don't talk to a bot. You talk to **the most informed sysadmin you've ever hired**, who happens to live in Telegram (for nudges) and Claude Code (for real work).
 
 ---
 
-## Layer-by-layer breakdown
+## Two surfaces — split by **what they can WRITE**
 
-```
-┌────────────────────────────────────────────────────────────────────┐
-│  CONNECTORS                                                        │
-│                                                                    │
-│   ┌─ Surface A ──────────────────────────────────────────────────┐ │
-│   │                                                              │ │
-│   │   ┌─ MONITOR  (own layer · own rules · own files) ────────┐  │ │
-│   │   │  Probes (uptime/ports/services/disk/ssl/logs/wp/...)  │  │ │
-│   │   │  Rules engine · scheduler · dedup · severity grading  │  │ │
-│   │   │  Inbound webhooks (RunCloud · CF · GitHub · custom)   │  │ │
-│   │   │  Output: structured Event { host · type · severity }  │  │ │
-│   │   └──────────────────────────────────┬────────────────────┘  │ │
-│   │                                      ↓                       │ │
-│   │   ┌─ NOTIFIER  (LLM compose + dispatch + Smart Fix) ──────┐  │ │
-│   │   │  Out: Telegram · Slack · Email · Webhook              │  │ │
-│   │   │  Compose: LLM reads Event + brain → human-grade msg   │  │ │
-│   │   │  UI: [Smart Fix] [Snooze 1h] [Ignore]                 │  │ │
-│   │   │  Writes: ONLY via Smart Fix (LLM-judged, registry)    │  │ │
-│   │   └───────────────────────────────────────────────────────┘  │ │
-│   └──────────────────────────────────────────────────────────────┘ │
-│                                                                    │
-│   ┌─ Surface B: AI CONVERSATIONAL  (READ-ONLY) ──────────────────┐ │
-│   │  Telegram DM · Slack · MCP · ChatGPT/Gemini plugin ·         │ │
-│   │  CLI · HTTP API                                              │ │
-│   │  Engine: user msg → BYOK LLM → static brain → live RO        │ │
-│   │  Scope: server topics only · soft tone · refuses off-topic   │ │
-│   │  Writes: NEVER. Refuses + suggests Smart Fix.                │ │
-│   └──────────────────────────────────────────────────────────────┘ │
-│                                                                    │
-│   Shared: auth · secrets · audit · guardrails · BYOK LLM ·         │
-│           BRAIN.conversations (every chat persisted)               │
-└────────────────────────────────────────────────────────────────────┘
-                              ↓
-                       REASONING → EXECUTOR → BRAIN
-```
+Both surfaces have **the same read powers**. They differ only on the write side:
 
-The legacy "Notifier layer 4" is gone. Its engine lives inside Surface A. Total layers: **4** (Connectors / Reasoning / Executor / Brain).
+| Surface | Channels | Read brain? | Read live (RO modules)? | Write |
+|---|---|---|---|---|
+| **A. Notifier** | Telegram · Slack · Email · Webhook (out) | ✅ Full | ✅ Server IP · visits · ports · disk · logs · WP audits · everything in the read-only allowlist | **Only via `Smart Fix`** (registry-bounded, LLM-judged) |
+| **B. AI Plugin** | Claude Code MCP · ChatGPT plugin · Gemini plugin · CLI · HTTP API | ✅ Full | ✅ Same allowlist | **Full writes** — every Stack/Platform module, gated by Guardrails |
+
+> **The line: both can READ everything. Only Surface B can do FULL writes. Surface A can only fix via Smart Fix cards.**
+
+Both surfaces persist every chat turn to `BRAIN.conversations` (host-scoped) so Perch builds sysadmin-grade per-host memory.
+
+### Why split this way
+
+- **Notifier channels are reactive and lightweight.** You're on your phone. You want a nudge, an explanation (from brain + live data), and a one-tap fix.
+- **AI Plugin channels are contextual and heavy.** You're at your desk in Claude Code/ChatGPT. You want to apply migrations, deploy fixes, run multi-step plans.
+- **Big writes belong where you have screen real-estate, conversation history, and the right mental mode for them.** Smart Fix's narrow registry is what's safe to expose on a phone.
 
 ---
 
-## Surface A — Monitor + Notifier
-
-Surface A is a pipeline: **Monitor** detects events → **Notifier** turns events into human-grade messages and (optionally) Smart Fix actions. They are separated because they evolve at very different rates and answer very different questions.
-
-### End-to-end lifecycle
+## Where Connectors sits in the 5-layer stack
 
 ```
-1. MONITOR FIRES       ─→  probe / rule / inbound webhook produces an Event:
-                             { host, type, severity, signal, raw, context }
-                           Event is staged in BRAIN.incidents (status=open).
-2. NOTIFIER COMPOSES   ─→  LLM reads Event + BRAIN (incidents, knowledge,
-                             webapps, conversations) and drafts:
-                             "what's wrong · why · what Smart Fix would do · context"
-3. SEND TO CHANNEL     ─→  card with [Smart Fix]  [Snooze 1h]  [Ignore]
-4. USER TAPS:
-     Ignore   → close in BRAIN.incidents · dedup quiet for N hours
-     Snooze   → re-alert in 1h, same card
-     Smart Fix → LLM picks safe action from registry
-                 → guardrails check
-                 → "Perching..." status message
-                 → execute write
-                 → report outcome:
-                     ✓ "Done. Freed 2.1 GB by clearing /uploads/2024/."
-                     ✗ "Couldn't fix because Y. Want me to try Z next?"
-                       (suggests next attempt — never retries blindly)
-5. EVERYTHING LOGGED   ─→  BRAIN.incidents · BRAIN.actions · BRAIN.audit_log
+       (1) CONNECTORS            ← this doc · top of stack · talks to user
+            │                      Surface A: Notifier (Telegram · Slack · Email · Webhook)
+            │                      Surface B: AI Plugin (Claude Code MCP · ChatGPT · Gemini · CLI · HTTP)
+            ↓
+       (2) REASONING             ← Orchestrator + specialists + guardrails enforcer
+            ↓
+       (3) MONITOR               ← own layer · Watch tier (probes/webhooks-in) + Decide tier
+            ↑                      uses Executor read-only modules to see · emits Events back up
+            ↓                      see monitor.md
+       (4) EXECUTOR (apps)       ← Stack + Platform modules (the actual server work)
+            ↓
+       (5) BRAIN                 ← per-host SQLite, logical rooms (conversations, incidents, …)
 ```
 
-### Monitor — its own layer
+Monitor sits at layer 3 because it **uses** Executor's read-only modules to see the world and **emits** Events upstream to Connectors (Surface A → Notifier). It's an observer-tier between the brains (Reasoning) and the hands (Executor).
 
-> Monitor gets its own folder, its own rules language, and its own [doc](./monitor.md). It's the part of Perch that grows fastest — every new probe, every new rule, every new inbound integration lives here.
+---
 
-Monitor's job is narrow: **decide if there is an event worth surfacing.** It does not call LLMs (Notifier does that). It does not pick fixes (Smart Fix runner does that). It does not format messages (Notifier does that).
+## Surface A — Notifier (Telegram-style channels)
 
-#### Components
+### Channels
+- **Telegram** — primary; one bot, one chat per user
+- **Slack** — team mirror
+- **Email** — fallback for slow/escalated alerts
+- **Webhook (out)** — to user's own systems (n8n, Zapier, custom)
 
-| Component | Role |
-|---|---|
-| **Probes** | Per-signal watchers (uptime, ports, services, disk, SSL, logs, WP-specific, …). Each probe is a small TS file with a single `probe()` returning a typed result. |
-| **Rules** | Thresholds, anomaly detectors, host overrides. Stored as data in `BRAIN.guardrails` (rules-as-data) — editable per host. |
-| **Scheduler** | Cron-style runner; per-probe interval; jittered to avoid thundering herd. |
-| **Dedup** | Suppresses repeats while an incident is open or recently snoozed/ignored. |
-| **Severity grader** | Maps probe result + rule + history → `info / warn / critical`. |
-| **Inbound webhooks** | RunCloud · Cloudflare · GitHub · custom. Treated as external probes — same Event shape downstream. |
-| **Event emitter** | Single output: `Event { host, type, severity, signal, raw, context }` → handed off to Notifier. |
+> "Telegram" in this doc is shorthand for *any notifier-style channel*. Same rules apply to Slack and Email.
 
-#### Built-in probes (seed set, will grow heavily)
+### Two flows in Surface A
 
-| Probe | Watches |
-|---|---|
-| `uptime` | HTTP status, response time |
-| `ports` | 22 / 80 / 443 / 3306 / 6379 / custom |
-| `services` | nginx · php-fpm · mysql · redis · queue workers |
-| `disk` | % used, growth rate, top consumers |
-| `ssl` | cert expiry, chain validity |
-| `logs` | 5xx spikes, fatal PHP, OOM, segfault |
-| `wp-specific` | slow plugins, Lighthouse drop, malware sigs, orphan media |
-| `webhooks-in` | RunCloud / Cloudflare / GitHub / custom (see below) |
+#### Flow 1 — Alert (Monitor → user)
+```
+Monitor emits Event   ─→  Notifier
+Notifier composes      ─→  BYOK LLM reads:
+                            • BRAIN (incidents, knowledge, webapps, conversations, timeseries)
+                            • Live read-only modules (df, ps, server IP, visit logs, …)
+                          drafts hyper-personal message:
+                            "what's wrong · why · what Smart Fix would do · context"
+Send to channel        ─→  card with [Smart Fix]  [Snooze 1h]  [Ignore]
+User taps:
+  Ignore   → close in BRAIN.incidents · dedup quiet for N hours
+  Snooze   → re-alert in 1h, same card
+  Smart Fix → LLM picks safe action from registry
+              → guardrails check
+              → "Perching..." status message
+              → execute write
+              → report outcome:
+                  ✓ "Done. Freed 2.1 GB by clearing /uploads/2024/."
+                  ✗ "Couldn't fix because Y. Want me to try Z next?"
+                    (suggests next attempt — never retries blindly)
+Everything logged      ─→  BRAIN.incidents · BRAIN.actions · BRAIN.audit_log
+```
 
-See [`monitor.md`](./monitor.md) for probe API, rule syntax, and how to add a new probe.
+#### Flow 2 — Conversation (user → bot)
+```
+User sends free-text in same chat:
+  "what happened to my disk yesterday?"
+  "show me top visits today"
+  "who logged in via SSH last hour?"
 
-### Notifier — LLM compose + dispatch
+Notifier opens session ─→  loads recent context from BRAIN.conversations (host-scoped)
+BYOK LLM plans         ─→  reads BRAIN + judges if live data needed
+                          fires READ-ONLY module calls as needed:
+                            • runcloud.get_logs · ssh.df · ssh.ps · wp.audit_*
+                            • server IP / visit logs / port status / service health
+LLM answers            ─→  conversational reply with brain + live context
 
-Notifier consumes Events from Monitor and is responsible for everything between "we have an event" and "the user has decided what to do."
+If user asks for write:
+  "delete that log"     →  REFUSE + ROUTE:
+                            "I can't run big writes from here. The next Smart
+                             Fix card can rotate logs. For deeper work, open
+                             Perch in Claude Code (or ChatGPT/Gemini/CLI)."
+  "flush cache"         →  same (even small writes go through Smart Fix card)
 
-| Component | Role |
-|---|---|
-| **LLM composer** | Reads Event + brain → drafts message in the bot's voice (soft, precise). Caches per-(host, type) so repeated alerts re-use phrasing. |
-| **Channel renderer** | Per-channel formatting (Telegram inline keyboards, Slack blocks, email HTML, webhook JSON). |
-| **Dispatcher** | Sends to all configured channels for that host + severity. |
-| **Button handler** | Routes `Smart Fix` / `Snooze` / `Ignore` callbacks back into the runner / scheduler. |
-| **Smart Fix runner** | LLM-picks an action from registry → guardrails → execute → report. Never retries blindly. |
+Persist                 ─→  every turn → BRAIN.conversations
+```
 
-### Smart Fix — LLM-judged, brain-evolved
+### Why writes are restricted to Smart Fix on Surface A
+
+- **No path to a big write through Telegram → no rogue agent risk on mobile.**
+- Smart Fix is **LLM-judged but registry-bounded** — only safe, reversible, sub-10s actions qualify.
+- Every Smart Fix run is logged and undoable.
+- For real ops work, the user has Claude Code / ChatGPT / Gemini one tap away.
+
+### Smart Fix — the only write path in Surface A
 
 Smart Fix is **not** a static if/else table. It is:
 
 - A **registry of safe-write actions** seeded with hand-curated fixes
-- An **LLM picker** that reads the probe + brain history and chooses the right action (or none)
+- An **LLM picker** that reads the Event + brain history and chooses the right action (or none)
 - A **learning loop** that promotes proven patterns from `BRAIN.actions` into the registry over time
 
 #### Hard rule
 **An action qualifies as Smart Fix only if it is reversible AND cannot break the site for >10s AND does not mutate user-generated content destructively.**
 
-If it fails the test → it surfaces as `[Investigate in chat]` instead, deep-linking to Surface B.
+If it fails the test → the alert card shows `[Investigate in Claude Code]` (or another Surface B channel of the user's choice) instead.
 
 #### Seeded registry (illustrative)
 
@@ -188,92 +156,63 @@ If it fails the test → it surfaces as `[Investigate in chat]` instead, deep-li
 
 ```
 1. Smart Fix runs → outcome logged to BRAIN.actions
-2. Nightly LLM job reads last-7-days actions:
-     - Which actions consistently succeed on which hosts?
-     - Are there recurring problems that always have the same human-fix?
-3. New candidate proposed:
-     "Pattern: when host=X has issue=Y, the manual fix is always Z.
+2. Nightly LLM job reads last-7d actions:
+     "Pattern: when host=X has issue=Y, manual fix is always Z.
       Promote to Smart Fix?"
-4. Telegram card asks once: [Yes, auto-fix in future] [No, keep manual]
-5. After human ack → registry grows. Future occurrences fire as auto Smart Fix.
-6. Knowledge stored in BRAIN.knowledge for cross-host generalisation.
+3. Notifier asks once: [Yes, auto-fix in future] [No, keep manual]
+4. After human ack → registry grows. Future occurrences fire as auto Smart Fix.
+5. Knowledge stored in BRAIN.knowledge for cross-host generalisation.
 ```
-
-**Promotion gate**: a new pattern needs **one explicit human ack** before becoming a Smart Fix. After that, it auto-fixes — but every run is still logged + reversible.
-
-### Channels (out)
-- **Telegram** — primary. One bot, one chat (see "The Perch Bot" below).
-- **Slack** — team mirror.
-- **Email** — fallback for slow/escalated alerts.
-- **Webhook (out)** — to user's own systems (n8n, Zapier, custom).
-
-### Inbound webhooks (handled by Monitor)
-
-External systems push events INTO Perch. **They land in Monitor**, not Notifier — they are external probes. Each event normalises into the same `Event` shape, then flows through the rest of the pipeline (compose → dispatch → buttons → Smart Fix).
-
-| Source | Example events |
-|---|---|
-| **RunCloud** | server reboot · backup succeeded/failed · deploy triggered · SSL renewed |
-| **Cloudflare** | WAF rule tripped · DDoS detected · origin error spike |
-| **GitHub** | push to main · workflow failed · deploy triggered · security alert |
-| **Custom** | any URL the user wires up — Stripe webhook, FluentCRM, etc. |
-
-Endpoint shape:
-```
-POST /perch/webhooks/<source>
-{ event, host, payload, signature }
-```
-
-The handler:
-1. Verifies signature (per-source secret in `BRAIN.secrets`)
-2. Logs to `BRAIN.incidents`
-3. Triggers the same LLM compose → channel send → button flow
 
 ---
 
-## Surface B — AI Conversational
+## Surface B — AI Plugin (Claude Code · ChatGPT · Gemini · CLI · HTTP)
 
-### Lifecycle of a chat turn
+This is where the real conversational ops work happens. Same read powers as Surface A; full write powers on top.
+
+### Channels (Surface B)
+
+| Channel | Use case | LLM | Notes |
+|---|---|---|---|
+| **Claude Code MCP** | Inside Claude Code; Perch is an MCP tool provider | Claude (user's existing subscription) | Tool list = full Stack + Platform modules |
+| **ChatGPT plugin** | Custom GPT or plugin against Perch's OpenAPI | OpenAI (user's account) | Same OpenAPI as Gemini |
+| **Gemini plugin** | Gemini extension against same OpenAPI | Google (user's account) | — |
+| **CLI** (`perch ...`) | Local terminal | Optional (raw module calls allowed) | Power-user shell |
+| **HTTP API** | n8n, scripts, dashboards, custom integrations | Optional | Bearer auth · all endpoints |
+
+### Lifecycle of an AI Plugin turn
 
 ```
-1. USER SENDS MESSAGE  ─→  in same Telegram chat (or any Surface B channel)
-2. SESSION OPENED      ─→  identified by chat_id; loads recent context from
-                           BRAIN.conversations (per-host scoped)
-3. LLM PLANS           ─→  reads STATIC brain first (cached snapshots, last state)
-4. LLM JUDGES          ─→  "Do I have enough? Or do I need a live read?"
-                           If live read needed → fires READ-ONLY module call:
-                             - wp.audit_*
-                             - runcloud.get_*
-                             - ssh-read-only allowlist (tail, df, ps, …)
-5. LLM ANSWERS          ─→  conversational reply, focused on servers only
-6. IF USER ASKS WRITE  ─→  REFUSE + ROUTE:
-                             "I can't write from chat. If this is urgent, the
-                              next Smart Fix card will offer it, or run the
-                              CLI: perch run <action>."
-7. PERSIST              ─→  full turn (msg + reply + tool calls) → BRAIN.conversations
+1. USER QUERY            ─→  via MCP/plugin/CLI/HTTP
+2. SESSION CONTEXT       ─→  loads BRAIN.conversations (host-scoped) +
+                              static brain (incidents, knowledge, webapps)
+3. REASONING LAYER PLANS  ─→  Orchestrator → specialist → tool plan
+4. LIVE READS             ─→  any Stack/Platform read module (wp.audit_*,
+                              runcloud.get_*, ssh-read commands, …)
+5. WRITES (if needed)     ─→  Guardrails enforcer checks every mutating call:
+                                allow / deny / require_human_confirmation
+                              On `require_human_confirmation` → ack flow
+                              (in-channel: "type CONFIRM" / MCP tool ack)
+6. EXECUTOR RUNS          ─→  Stack via SSH, Platform via REST
+7. RESULT → USER          ─→  conversational reply with what was done + diff
+8. PERSIST                ─→  full turn (msg + reply + tool calls) → BRAIN.conversations
 ```
 
-### Why strictly read-only
+### What Surface B can do that Surface A cannot
+- Apply mutations (anything in the module catalog), gated by Guardrails
+- Multi-step plans (audit → propose → apply → verify in one session)
+- Long-form output (logs, configs, diffs)
+- Cross-host queries
+- Smart Fix-style fixes plus everything bigger (migrations, search-replace, plugin install/update, core update, etc.)
 
-- **No conversational writes = no rogue agent.** Jailbreak attempts and misclicks can never destroy data through chat.
-- Every mutation is surfaced through **Smart Fix cards** — scoped, explained, one-tap-reversible.
-- Cost meter stays honest — chat is read-only and cheap.
-- The line is so simple users learn it in one sentence.
-
-### Channels
-
-| Channel | Use case | Notes |
-|---|---|---|
-| **Telegram DM** | Same chat as alerts; sending text starts a session | Primary |
-| **Slack DM / mention** | Team-shared read-only ops Q&A | Multi-user |
-| **Claude Code MCP** | Aditya inside Claude Code asks Perch via MCP tools | Tool list = read-only modules + audit calls |
-| **ChatGPT / Gemini plugin** | OpenAPI shape — works with any plugin-capable LLM | Same auth as HTTP API |
-| **CLI** (`perch ...`) | Local terminal | Read-only commands; mutating commands stub: "use Smart Fix" |
-| **HTTP API** | n8n, scripts, dashboards | Bearer auth · read-only endpoints only |
+### What Surface B is bound by
+- **Guardrails** — every mutation passes `BRAIN.guardrails` rules. Prod hosts default to `require_human_confirmation`.
+- **Cost meter** — token use logged per session; hard caps configurable.
+- **Audit log** — every action lands in `BRAIN.audit_log`.
 
 ### BYOK — bring your own LLM key
 
-Perch ships **without a default LLM**. Users supply their own provider key — keeping the "free forever, no extra services" promise.
+Each Surface B channel uses its native LLM. Surface A's compose step (alerts + chat replies) uses the same `PERCH_LLM_*` config:
 
 ```
 PERCH_LLM_PROVIDER = gemini | openai | claude
@@ -281,17 +220,13 @@ PERCH_LLM_MODEL    = <provider model id>
 PERCH_LLM_API_KEY  = <stored encrypted in BRAIN.secrets via vault.ts>
 ```
 
-Reference deployment uses `gemini-2.5-flash-lite` (free tier).
-
-Keys are loaded with `scripts/perch-vault-set.ts` which reads from stdin and writes to vault — never via shell history, never committed.
+Reference deployment: `gemini-2.5-flash-lite` (free tier).
 
 ---
 
-## The Perch Bot — personality & scope
+## The Perch Bot — personality & scope (both surfaces)
 
 ### Scope: servers only
-
-Perch's bot is **strictly a sysadmin assistant**. It is not a general-purpose chatbot.
 
 ```
 USER: What's the weather today?
@@ -303,26 +238,21 @@ PERCH: I'd rather show you what's running on your servers.
        Want a quick health check on hetzner-1?
 
 USER: Write me a Python function
-PERCH: Outside my lane — I focus on your infra. If you want, I can
-       check your deployed services or recent logs.
+PERCH: Outside my lane — I focus on your infra.
 ```
 
-The system prompt enforces:
+System prompt enforces:
 - **In scope**: server health, webapp performance, security, cleanup, ops, diagnostics, plugin behaviour, RunCloud/Cloudflare/GitHub state, log explanation, brain history.
-- **Out of scope**: general knowledge, code generation, advice unrelated to the user's infra, opinions on tools the user doesn't run.
+- **Out of scope**: general knowledge, code generation, advice unrelated to user's infra.
 
 ### Tone: soft, precise, helpful
-
-- **Soft**: never alarmist, never robotic. "Disk's getting tight — 95% on hetzner-1. I have a clean fix in mind."
+- **Soft**: never alarmist. "Disk's getting tight — 95% on hetzner-1. I have a clean fix in mind."
 - **Precise**: numbers, paths, names. "5,200 orphan files in `/uploads/2024/`, 3.2 GB."
-- **Helpful**: always offers a next step. Either a Smart Fix card or a follow-up read.
-- **Short**: matches the user's terseness. Replies are 1–4 sentences unless asked for depth.
+- **Helpful**: always offers a next step.
+- **Short**: 1–4 sentences unless asked for depth.
 
 ### Memory: every chat in Brain
-
-Every turn is persisted to `BRAIN.conversations` (new room — see [`brain.md`](./brain.md)). The next session loads the last N relevant turns scoped to the same host.
-
-This is what makes Perch feel like a sysadmin who already knows your servers — because the brain is durable, host-scoped, and read by the LLM at every turn.
+Both surfaces persist every turn to `BRAIN.conversations` (host-scoped). Next session loads recent turns. This is what makes Perch feel like a sysadmin who already knows your servers.
 
 ```
 BRAIN.conversations schema (sketch):
@@ -335,90 +265,70 @@ BRAIN.conversations schema (sketch):
 ## Folder layout
 
 ```
-src/connectors/
-├── monitor/                        ← Surface A · sub-layer 1 (eyes)
-│   ├── index.ts                    (orchestrator: schedule → probe → grade → emit Event)
-│   ├── scheduler.ts                (cron + jitter + per-probe interval)
-│   ├── dedup.ts                    (suppress repeats while incident open/snoozed)
-│   ├── severity.ts                 (probe result + rule → info|warn|critical)
-│   ├── event.ts                    (Event type + emitter)
-│   ├── rules/                      (rules-as-data loader; backed by BRAIN.guardrails)
-│   │   ├── thresholds.ts
-│   │   ├── anomalies.ts
-│   │   └── host-overrides.ts
-│   ├── probes/                     (one file per probe; grows heavily)
-│   │   ├── uptime.ts
-│   │   ├── ports.ts
-│   │   ├── services.ts
-│   │   ├── disk.ts
-│   │   ├── ssl.ts
-│   │   ├── logs.ts
-│   │   └── wp-specific.ts
-│   └── webhooks-in/                (inbound = external probes)
-│       ├── runcloud.ts
-│       ├── cloudflare.ts
-│       ├── github.ts
-│       └── custom.ts
+src/
+├── connectors/                     ← LAYER 1 (this doc)
+│   ├── notifier/                   ← Surface A · Telegram-style channels
+│   │   ├── index.ts                (consumes Events from monitor; routes free-text)
+│   │   ├── compose.ts              (LLM: Event + brain + live reads → message)
+│   │   ├── chat.ts                 (free-text reply: brain + live reads, RO only)
+│   │   ├── refuse-write.ts         (single source of truth for "use Claude Code / Smart Fix")
+│   │   ├── dispatcher.ts           (route to channels for the host)
+│   │   ├── buttons.ts              (handle Smart Fix / Snooze / Ignore callbacks)
+│   │   ├── smart-fix/
+│   │   │   ├── registry.ts         (catalog of safe-write actions, growable)
+│   │   │   ├── runner.ts           (LLM picks → guardrails → execute → report)
+│   │   │   ├── promote.ts          (nightly job: propose new candidates)
+│   │   │   └── actions/
+│   │   │       ├── service-restart.ts
+│   │   │       ├── cache-purge.ts
+│   │   │       ├── log-rotate.ts
+│   │   │       ├── fail2ban-unban.ts
+│   │   │       ├── orphan-media-delete.ts
+│   │   │       ├── ssl-reissue.ts
+│   │   │       └── ...
+│   │   └── channels/
+│   │       ├── telegram.ts
+│   │       ├── slack.ts
+│   │       ├── email.ts
+│   │       └── webhook-out.ts
+│   │
+│   └── ai-plugin/                  ← Surface B · Claude Code / ChatGPT / Gemini / CLI / HTTP
+│       ├── index.ts                (router: channel → reasoning → executor)
+│       ├── system-prompt.ts        (sysadmin-only scope · soft tone)
+│       ├── llm/
+│       │   ├── gemini.ts
+│       │   ├── openai.ts
+│       │   └── claude.ts
+│       └── channels/
+│           ├── mcp.ts              (Claude Code MCP server; full tool catalog)
+│           ├── plugin-http.ts      (OpenAPI for ChatGPT/Gemini plugins)
+│           ├── cli.ts              (local terminal, full module access)
+│           └── http-api.ts         (replaces src/api/server.ts; full endpoints)
 │
-├── notifier/                       ← Surface A · sub-layer 2 (voice + hands)
-│   ├── index.ts                    (consumes Events from monitor)
-│   ├── compose.ts                  (LLM: Event + brain → human-grade message)
-│   ├── dispatcher.ts               (route to channels for the host)
-│   ├── buttons.ts                  (handle Smart Fix / Snooze / Ignore callbacks)
-│   ├── smart-fix/
-│   │   ├── registry.ts             (catalog of safe-write actions, growable)
-│   │   ├── runner.ts               (LLM picks → guardrails → execute → report)
-│   │   ├── promote.ts              (nightly job: propose new candidates)
-│   │   └── actions/
-│   │       ├── service-restart.ts
-│   │       ├── cache-purge.ts
-│   │       ├── log-rotate.ts
-│   │       ├── fail2ban-unban.ts
-│   │       ├── orphan-media-delete.ts
-│   │       ├── ssl-reissue.ts
-│   │       └── ...
-│   └── channels/
-│       ├── telegram.ts             (renders card, handles button callbacks)
-│       ├── slack.ts
-│       ├── email.ts
-│       └── webhook-out.ts
-│
-└── ai/                             ← Surface B (READ-ONLY)
-    ├── index.ts                    (router: channel → BYOK LLM → read-only modules)
-    ├── system-prompt.ts            (sysadmin-only scope · soft tone)
-    ├── refuse-write.ts             (single source of truth for "I can't write")
-    ├── llm/
-    │   ├── gemini.ts
-    │   ├── openai.ts
-    │   └── claude.ts
-    └── channels/
-        ├── telegram.ts             (conversational mode, same chat as Surface A)
-        ├── slack.ts
-        ├── mcp.ts                  (Claude Code MCP server)
-        ├── plugin-http.ts          (OpenAPI for ChatGPT/Gemini plugins)
-        ├── cli.ts
-        └── http-api.ts             (replaces src/api/server.ts, RO endpoints only)
+├── reasoning/                      ← LAYER 2 (orchestrator + specialists)
+├── monitor/                        ← LAYER 3 (see monitor.md)
+└── modules/                        ← LAYER 4 (Executor: stack/ + platform/)
+                                      LAYER 5 is BRAIN at ~/.perch/brain.db
 ```
+
+Telegram and Slack do **not** appear in `ai-plugin/channels/` — they are exclusively Surface A channels. Big writes never come from there.
 
 ---
 
 ## Why this is Perch's moat
 
-1. **The connector thinks.** Every alert is a sysadmin reading the logs FOR you, not a raw error dump.
-2. **One sharp line.** Conversation never writes; Smart Fix is the only write. Users learn safety in one sentence.
-3. **Per-webapp memory.** Brain-backed conversation = the bot gets better at YOUR servers, not "servers in general."
-4. **BYOK = free forever.** No hidden LLM costs, no vendor lock-in, no extra services.
+1. **The connectors think.** Every alert is a sysadmin reading the logs FOR you, not a raw error dump.
+2. **Same reads, different writes.** Both surfaces see everything. Only the desk channels do big writes. One sentence of safety the user actually understands.
+3. **Per-webapp memory.** `BRAIN.conversations` = the bot gets better at YOUR servers.
+4. **BYOK = free forever.** No hidden LLM costs, no vendor lock-in.
 5. **Plug-ins everywhere.** Same backend serves Telegram, Slack, Claude Code, ChatGPT, Gemini, CLI, HTTP. Add a channel = one file.
-6. **Self-evolving.** Smart Fix registry grows with proven patterns from real incidents on real hosts.
+6. **Self-evolving.** Smart Fix registry grows with proven patterns from real incidents.
+7. **Monitor is its own beast.** A whole layer of its own ([monitor.md](./monitor.md)) that evolves fearlessly.
 
 ---
 
-## Open questions (final 3 before ship)
+## Open questions (final 3 before v2.5 implementation)
 
-1. **Conversation refuses ALL writes** — even tiny ones like "flush cache"? My recommendation: yes, strict refuse, redirect to Smart Fix. The clean line is what makes this safe.
-
-2. **Smart Fix promotion gate** — new patterns need **one human ack** before becoming auto-fixable. After that, they auto-run on detection. OK? Or always require human ack even after promotion?
-
-3. **`BRAIN.conversations` retention** — keep all turns forever, or trim per host (e.g. last 90 days + summarise older into `BRAIN.knowledge`)?
-
-Answer these and Connectors v2.4 ships.
+1. **Surface A free-text reads** — confirm: brain + live read-only modules (server IP, visits, ports, df, ps, etc.) are all OK from Telegram, just no writes? (Recommendation: yes.)
+2. **Smart Fix promotion gate** — new patterns need **one human ack** before becoming auto-fixable. After that, they auto-run on detection. OK? (Recommendation: yes, one-ack-then-auto.)
+3. **`BRAIN.conversations` retention** — keep all turns forever, or trim per host (e.g. last 90 days + summarise older into `BRAIN.knowledge`)? (Recommendation: trim+summarise at 90d.)
