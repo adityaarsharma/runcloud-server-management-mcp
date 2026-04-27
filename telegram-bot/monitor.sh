@@ -29,7 +29,7 @@ CHAT_ID="${TELEGRAM_CHAT_ID:-}"
 # ── Optional config + thresholds (sensible defaults) ──────────────────────────
 
 FIX_URL="${FIX_SERVER_URL:-http://127.0.0.1:3011}"
-NGINX_SVC="${NGINX_SERVICE:-auto}"
+NGINX_SVC="${NGINX_SVC:-auto}"  # honour .env override
 STATE_DIR="${MONITOR_STATE_DIR:-/tmp/perch-monitor}"
 MUTE_FILE="${MONITOR_MUTE_FILE:-/tmp/perch-monitor-muted}"
 SERVER_NAME="${MONITOR_SERVER_NAME:-$(hostname -s)}"
@@ -448,7 +448,7 @@ rule_fail2ban_spike() {
 
   local since="1 hour ago"
   local bans
-  bans="$(journalctl -u fail2ban --since "$since" --no-pager 2>/dev/null | grep -c ' Ban ' || echo 0)"
+  bans=$(journalctl -u fail2ban --since "$since" --no-pager 2>/dev/null | grep -c ' Ban ' || true); bans="${bans:-0}"
   if [ "$bans" -gt "$RULE_FAIL2BAN_BAN_RATE" ]; then
     send_alert "fail2ban_spike" "warning" "Brute force surge" \
       "fail2ban banned *${bans}* IP(s) in the last hour. You may be under a brute-force or scanner sweep.\n\nIf this is sustained, consider tightening rate limits or enabling additional jails." \
