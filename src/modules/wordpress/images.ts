@@ -172,6 +172,27 @@ export interface OptimizeOptions {
   generateWebp?: boolean;
   losslessOnly?: boolean;
   dryRun?: boolean;
+  /**
+   * Use pngquant (lossy palette quantization) instead of optipng for PNG
+   * compression when available. Saves 60–80% per file vs optipng's 5–25%.
+   * Default true. Set false to force lossless-only behavior on PNGs.
+   */
+  preferPngquant?: boolean;
+  /**
+   * pngquant quality range (e.g. "75-90"). 80-95 is too tight for truecolor
+   * screenshots — pngquant fails the floor and skips. 75-90 lands at
+   * perceptual Q≈77, visually indistinguishable for typical web images.
+   * Default "75-90".
+   */
+  pngQualityRange?: string;
+  /**
+   * Per-tool parallelism. Default 1 (matches legacy serial behavior). Bump to
+   * 2-3 for faster runs on multi-core servers; combine with `nicePriority`
+   * to avoid impacting live traffic.
+   */
+  parallelism?: number;
+  /** `nice` level (0-19, higher = lower priority). Default 19. */
+  nicePriority?: number;
 }
 
 export async function optimizeImages(
@@ -183,9 +204,21 @@ export async function optimizeImages(
     throw new Error('uploadsPath must not contain ".."');
   }
 
-  const { generateWebp = true, losslessOnly = true, dryRun = false } = opts;
+  const {
+    generateWebp = true,
+    losslessOnly = true,
+    dryRun = false,
+    preferPngquant = true,
+    pngQualityRange = '75-90',
+    parallelism = 1,
+    nicePriority = 19,
+  } = opts;
   const errors: string[] = [];
   const startMs = Date.now();
+
+  if (parallelism < 1 || parallelism > 32) throw new Error('parallelism must be 1..32');
+  if (nicePriority < 0 || nicePriority > 19) throw new Error('nicePriority must be 0..19');
+  if (!/^\d+-\d+$/.test(pngQualityRange)) throw new Error('pngQualityRange must look like "75-90"');
 
   const tools = await getImageTools(sshOpts);
 
@@ -201,15 +234,16 @@ export async function optimizeImages(
   let webpCreated = 0;
 
   if (!dryRun) {
-    // JPEG optimization with jpegoptim
+    // JPEG optimization with jpegoptim (parallelised + niced)
     if (tools.jpegoptim) {
       const jpegArgs = losslessOnly
         ? '--strip-all --all-progressive'
         : '--strip-all --all-progressive --max=85';
       const jpegRes = await sshExec(
         { ...sshOpts, timeoutMs: 300_000 },
-        `find ${uploadsPath} -type f \\( -iname "*.jpg" -o -iname "*.jpeg" \\) ` +
-        `-exec jpegoptim ${jpegArgs} {} \\; 2>&1`
+        `find ${uploadsPath} -type f \\( -iname "*.jpg" -o -iname "*.jpeg" \\) -print0 ` +
+        `| xargs -0 -P ${parallelism} -n 30 nice -n ${nicePriority} ` +
+        `jpegoptim ${jpegArgs} 2>&1`
       );
       if (jpegRes.code !== 0) {
         errors.push(`jpegoptim error: ${jpegRes.stderr.slice(0, 200)}`);
@@ -221,12 +255,36 @@ export async function optimizeImages(
       errors.push('jpegoptim not installed — JPEG files not optimized.');
     }
 
-    // PNG optimization with optipng
-    if (tools.optipng) {
+    // PNG optimization — prefer pngquant (lossy palette, ~70% savings) over
+    // optipng (lossless, ~10% savings). Falls back if pngquant absent.
+    const usePngquant = preferPngquant && tools.pngquant && !losslessOnly;
+
+    if (usePngquant) {
+      const pngRes = await sshExec(
+        { ...sshOpts, timeoutMs: 600_000 },
+        `find ${uploadsPath} -type f -iname "*.png" -print0 ` +
+        `| xargs -0 -P ${parallelism} -n 30 nice -n ${nicePriority} ` +
+        `pngquant --quality=${pngQualityRange} --skip-if-larger --strip --ext .png --force --speed 4 2>&1`
+      );
+      if (pngRes.code !== 0 && pngRes.code !== 99) {
+        // pngquant returns 99 when --skip-if-larger triggers — not an error
+        errors.push(`pngquant error: ${pngRes.stderr.slice(0, 200)}`);
+      } else {
+        // pngquant has no per-file success line in batch mode; count below via
+        // post-size delta. Treat all matched files as candidates.
+        const matched = await sshExec(
+          sshOpts,
+          `find ${uploadsPath} -type f -iname "*.png" 2>/dev/null | wc -l`
+        );
+        processed += parseInt(matched.stdout.trim(), 10) || 0;
+      }
+    } else if (tools.optipng) {
+      // Lossless fallback (or losslessOnly=true)
       const pngRes = await sshExec(
         { ...sshOpts, timeoutMs: 300_000 },
-        `find ${uploadsPath} -type f -iname "*.png" ` +
-        `-exec optipng -o2 -quiet {} \\; 2>&1`
+        `find ${uploadsPath} -type f -iname "*.png" -print0 ` +
+        `| xargs -0 -P ${parallelism} -n 30 nice -n ${nicePriority} ` +
+        `optipng -o2 -quiet 2>&1`
       );
       if (pngRes.code !== 0) {
         errors.push(`optipng error: ${pngRes.stderr.slice(0, 200)}`);
@@ -235,7 +293,7 @@ export async function optimizeImages(
         processed += pngCount;
       }
     } else {
-      errors.push('optipng not installed — PNG files not optimized.');
+      errors.push('Neither pngquant nor optipng installed — PNG files not optimized.');
     }
 
     // WebP generation with cwebp

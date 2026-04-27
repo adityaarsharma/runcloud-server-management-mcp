@@ -33,7 +33,14 @@ import { auditDatabase, cleanTransients } from "../modules/wordpress/db.js";
 import { auditPlugins } from "../modules/wordpress/plugins.js";
 import { auditSecurity } from "../modules/wordpress/security.js";
 import { checkBackupHealth } from "../modules/wordpress/backup.js";
-import { scanImages } from "../modules/wordpress/images.js";
+import { scanImages, optimizeImages } from "../modules/wordpress/images.js";
+import {
+  startBulkCompression,
+  getBulkCompressionStatus,
+  cancelBulkCompression,
+  listBulkCompressionJobs,
+  cleanupBulkCompression,
+} from "../modules/wordpress/images-bulk.js";
 import { snapshotPerformance } from "../modules/wordpress/perf.js";
 import { diagnoseErrors } from "../modules/wordpress/errors.js";
 
@@ -227,12 +234,54 @@ const HANDLERS: Record<string, (args: Record<string, unknown>) => Promise<unknow
     const opts = buildSshOpts(a as unknown as SshAuthArgs);
     return await scanImages(opts, String(a.uploadsPath));
   },
+  "wp.images_compress_bulk_status": async (a) => {
+    const opts = buildSshOpts(a as unknown as SshAuthArgs);
+    return await getBulkCompressionStatus(opts, String(a.jobId));
+  },
+  "wp.images_compress_bulk_list": async (a) => {
+    const opts = buildSshOpts(a as unknown as SshAuthArgs);
+    return await listBulkCompressionJobs(opts);
+  },
 
   // ── WordPress mutations (require explicit confirm flag)
   "wp.db_clean": async (a) => {
     if (a.confirm !== true) throw new Error("wp.db_clean requires confirm:true to actually delete data");
     const opts = buildSshOpts(a as unknown as SshAuthArgs);
     return await cleanTransients(opts, String(a.wpPath), String(a.wpUser));
+  },
+  "wp.images_optimize": async (a) => {
+    if (a.confirm !== true) throw new Error("wp.images_optimize requires confirm:true to mutate files");
+    const opts = buildSshOpts(a as unknown as SshAuthArgs);
+    return await optimizeImages(opts, String(a.uploadsPath), {
+      generateWebp: a.generateWebp === undefined ? true : Boolean(a.generateWebp),
+      losslessOnly: a.losslessOnly === undefined ? true : Boolean(a.losslessOnly),
+      dryRun: Boolean(a.dryRun),
+      preferPngquant: a.preferPngquant === undefined ? true : Boolean(a.preferPngquant),
+      pngQualityRange: a.pngQualityRange ? String(a.pngQualityRange) : undefined,
+      parallelism: a.parallelism ? Number(a.parallelism) : undefined,
+      nicePriority: a.nicePriority ? Number(a.nicePriority) : undefined,
+    });
+  },
+  "wp.images_compress_bulk_start": async (a) => {
+    if (a.confirm !== true) throw new Error("wp.images_compress_bulk_start requires confirm:true to launch a long-running job");
+    const opts = buildSshOpts(a as unknown as SshAuthArgs);
+    return await startBulkCompression(opts, String(a.uploadsPath), {
+      pngQualityRange: a.pngQualityRange ? String(a.pngQualityRange) : undefined,
+      parallelism: a.parallelism ? Number(a.parallelism) : undefined,
+      nicePriority: a.nicePriority ? Number(a.nicePriority) : undefined,
+      includeJpeg: Boolean(a.includeJpeg),
+      jpegQuality: a.jpegQuality ? Number(a.jpegQuality) : undefined,
+    });
+  },
+  "wp.images_compress_bulk_cancel": async (a) => {
+    if (a.confirm !== true) throw new Error("wp.images_compress_bulk_cancel requires confirm:true");
+    const opts = buildSshOpts(a as unknown as SshAuthArgs);
+    return await cancelBulkCompression(opts, String(a.jobId));
+  },
+  "wp.images_compress_bulk_cleanup": async (a) => {
+    if (a.confirm !== true) throw new Error("wp.images_compress_bulk_cleanup requires confirm:true");
+    const opts = buildSshOpts(a as unknown as SshAuthArgs);
+    return await cleanupBulkCompression(opts, String(a.jobId));
   },
 };
 
