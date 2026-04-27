@@ -87,15 +87,10 @@ send_alert() {
   local rule_id="$1" severity="$2" title="$3" body="$4" buttons="${5:-[]}"
   body="$(printf '%b' "$body")"  # expand \n escape sequences
 
-  # Mark Perch session active (kind=alert, 24h timeout) so Niyati can route
-  # cross-questions to handle_server until user clicks Acknowledge.
-  if [ -w /tmp ]; then
-    local now_iso; now_iso="$(date -u +%Y-%m-%dT%H:%M:%S)"
-    cat > /tmp/perch_session.json << SESSEOF
-{"active": true, "kind": "alert", "started": "${now_iso}", "last_activity": "${now_iso}", "alert_rule": "${rule_id}"}
-SESSEOF
-    chmod 666 /tmp/perch_session.json 2>/dev/null || true
-  fi
+  # NOTE (v2.5): alerts are nudges, NOT session triggers.
+  # We deliberately do NOT touch /tmp/perch_session.json here —
+  # session must be opened explicitly by /perch_start. Aditya's rule:
+  # "Perch start nhi karu toh na ho, even if nudge se aaye."
 
   local state_file="$STATE_DIR/$rule_id"
   local now hash last_hash last_time elapsed
