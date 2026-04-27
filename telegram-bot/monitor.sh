@@ -85,6 +85,7 @@ fi
 send_alert() {
   # send_alert <rule_id> <severity> <title> <body> <button_json>
   local rule_id="$1" severity="$2" title="$3" body="$4" buttons="${5:-[]}"
+  body="$(printf '%b' "$body")"  # expand \n escape sequences
 
   # Mark Perch session active (kind=alert, 24h timeout) so Niyati can route
   # cross-questions to handle_server until user clicks Acknowledge.
