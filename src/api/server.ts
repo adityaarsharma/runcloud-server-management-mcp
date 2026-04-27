@@ -57,6 +57,13 @@ import { searchReplace } from "../modules/wordpress/search-replace.js";
 import { auditCron, runCronEvents, flushRewrites } from "../modules/wordpress/cron.js";
 import { auditSsl } from "../modules/wordpress/ssl.js";
 import { auditWpConfig } from "../modules/wordpress/wp-config.js";
+import { auditMultisite } from "../modules/wordpress/multisite.js";
+import { testEmail } from "../modules/wordpress/email-test.js";
+import { auditCaching } from "../modules/wordpress/caching.js";
+import { auditWooCommerce } from "../modules/wordpress/woocommerce.js";
+import { auditYoast } from "../modules/wordpress/yoast.js";
+import { runLighthouse } from "../modules/wordpress/lighthouse.js";
+import { buildRecommendations } from "../modules/wordpress/recommend.js";
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
@@ -314,6 +321,37 @@ const HANDLERS: Record<string, (args: Record<string, unknown>) => Promise<unknow
     const opts = buildSshOpts(a as unknown as SshAuthArgs);
     return await auditWpConfig(opts, String(a.wpPath));
   },
+  "wp.multisite_audit": async (a) => {
+    const opts = buildSshOpts(a as unknown as SshAuthArgs);
+    return await auditMultisite(opts, String(a.wpPath), String(a.wpUser));
+  },
+  "wp.caching_audit": async (a) => {
+    const opts = buildSshOpts(a as unknown as SshAuthArgs);
+    return await auditCaching(opts, String(a.wpPath), String(a.wpUser));
+  },
+  "wp.woocommerce_audit": async (a) => {
+    const opts = buildSshOpts(a as unknown as SshAuthArgs);
+    return await auditWooCommerce(opts, String(a.wpPath), String(a.wpUser));
+  },
+  "wp.yoast_audit": async (a) => {
+    const opts = buildSshOpts(a as unknown as SshAuthArgs);
+    return await auditYoast(opts, String(a.wpPath), String(a.wpUser));
+  },
+  "wp.lighthouse_audit": async (a) => {
+    const opts = buildSshOpts(a as unknown as SshAuthArgs);
+    const strategy = (a.strategy === 'desktop' ? 'desktop' : 'mobile') as 'mobile' | 'desktop';
+    return await runLighthouse(opts, String(a.url), strategy, a.psiApiKey ? String(a.psiApiKey) : undefined);
+  },
+  "wp.recommend": async (a) => {
+    const opts = buildSshOpts(a as unknown as SshAuthArgs);
+    return await buildRecommendations(opts, {
+      wpPath: String(a.wpPath),
+      wpUser: String(a.wpUser),
+      brain,
+      serverId: a.serverId ? Number(a.serverId) : undefined,
+      webappId: a.webappId ? Number(a.webappId) : undefined,
+    });
+  },
 
   // ── WordPress mutations (require explicit confirm flag)
   "wp.db_clean": async (a) => {
@@ -420,6 +458,14 @@ const HANDLERS: Record<string, (args: Record<string, unknown>) => Promise<unknow
     if (a.confirm !== true) throw new Error("wp.rewrite_flush requires confirm:true");
     const opts = buildSshOpts(a as unknown as SshAuthArgs);
     return await flushRewrites(opts, String(a.wpPath), String(a.wpUser), Boolean(a.hardFlush));
+  },
+  "wp.email_test": async (a) => {
+    if (a.confirm !== true) throw new Error("wp.email_test requires confirm:true (sends a real email)");
+    const opts = buildSshOpts(a as unknown as SshAuthArgs);
+    return await testEmail(
+      opts, String(a.wpPath), String(a.wpUser),
+      String(a.to), a.subject ? String(a.subject) : undefined,
+    );
   },
 };
 
