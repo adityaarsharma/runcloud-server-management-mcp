@@ -164,15 +164,17 @@ SESSEOF
   fi
 }
 
-# Common button sets
-BTN_FIX_STATUS='[[{"text":"🔧 Smart Fix","callback_data":"perch:fix"},{"text":"📊 Status","callback_data":"perch:status"}],[{"text":"🔇 Mute 1h","callback_data":"perch:mute_1h"},{"text":"✅ Ack","callback_data":"perch:ack"}]]'
-BTN_NGINX='[[{"text":"🌐 Restart nginx","callback_data":"perch:fix-nginx"},{"text":"📋 Logs","callback_data":"perch:logs-nginx"}],[{"text":"✅ Ack","callback_data":"perch:ack"}]]'
-BTN_DISK='[[{"text":"🧹 Clear logs","callback_data":"perch:clear-logs"},{"text":"💾 Show disk","callback_data":"perch:disk"}],[{"text":"✅ Ack","callback_data":"perch:ack"}]]'
-BTN_RAM='[[{"text":"🔧 Smart Fix","callback_data":"perch:fix"},{"text":"📊 Top Procs","callback_data":"perch:top-procs"}],[{"text":"✅ Ack","callback_data":"perch:ack"}]]'
-BTN_PHP='[[{"text":"🔄 Restart PHP-FPM","callback_data":"perch:fix-php-fpm"},{"text":"📋 PHP errors","callback_data":"perch:logs-php"}],[{"text":"✅ Ack","callback_data":"perch:ack"}]]'
-BTN_DB='[[{"text":"🔄 Restart MySQL","callback_data":"perch:fix-mysql"},{"text":"📊 Status","callback_data":"perch:status"}],[{"text":"✅ Ack","callback_data":"perch:ack"}]]'
-BTN_SSL='[[{"text":"🔄 Renew SSL","callback_data":"perch:renew-ssl"},{"text":"📋 SSL Status","callback_data":"perch:ssl-status"}],[{"text":"✅ Ack","callback_data":"perch:ack"}]]'
-BTN_ACK='[[{"text":"✅ Acknowledge","callback_data":"perch:ack"}]]'
+# Perch v2.5 — every alert ships with the same 3-button shape:
+#   [🔧 Smart Fix]  [💤 Snooze 1h]  [✅ Ack]
+# Smart Fix's callback_data carries the action name; bot/Niyati dispatches it.
+# For alerts where no safe Smart Fix exists, BTN_ACK_ONLY drops the fix button.
+
+BTN_3() {
+  local action="${1:-fix}"
+  printf '[[{"text":"🔧 Smart Fix","callback_data":"perch:%s"},{"text":"💤 Snooze 1h","callback_data":"perch:mute_1h"},{"text":"✅ Ack","callback_data":"perch:ack"}]]' "$action"
+}
+
+BTN_ACK_ONLY='[[{"text":"💤 Snooze 1h","callback_data":"perch:mute_1h"},{"text":"✅ Ack","callback_data":"perch:ack"}]]'
 
 # ────────────────────────────────────────────────────────────────────────────────
 # RULE 1 — nginx / nginx-rc service down
@@ -197,7 +199,7 @@ Last errors:
 ${error_summary}
 \`\`\`"
 
-    send_alert "nginx_down" "critical" "Web server is down" "$body" "$BTN_NGINX"
+    send_alert "nginx_down" "critical" "Web server is down" "$body" "$(BTN_3 fix-nginx)"
   fi
 }
 
@@ -219,7 +221,7 @@ rule_php_fpm() {
     listing="$(printf -- '- %s\n' "${down_services[@]}")"
     send_alert "php_fpm_down" "critical" "PHP-FPM is down" \
       "PHP-FPM service(s) are not running:\n${listing}\n\nWordPress and PHP sites cannot serve requests." \
-      "$BTN_PHP"
+      "$(BTN_3 fix-php-fpm)"
   fi
 }
 
@@ -240,7 +242,7 @@ rule_database() {
   if [ "$status" != "active" ]; then
     send_alert "mysql_down" "critical" "Database is down" \
       "${svc} is *${status}*. WordPress, Laravel, and any DB-backed site cannot run.\n\nThis often happens after an out-of-memory event. I can restart it for you." \
-      "$BTN_DB"
+      "$(BTN_3 fix-mysql)"
   fi
 }
 
@@ -259,15 +261,15 @@ rule_disk() {
     top="$(du -sh /home/* /var/log /tmp 2>/dev/null | sort -rh | head -5 | awk '{printf "  %s  %s\n",$1,$2}')"
     send_alert "disk_critical" "critical" "Disk almost full ($pct%)" \
       "$used / $total used. Sites will start failing soon — log writes fail, MySQL can't write, uploads break.\n\nTop offenders:\n\`\`\`\n${top}\n\`\`\`" \
-      "$BTN_DISK"
+      "$(BTN_3 clear-logs)"
   elif [ "$pct" -ge "$RULE_DISK_HIGH" ]; then
     send_alert "disk_high" "warning" "Disk getting full ($pct%)" \
       "$used / $total used. Time to clean up old logs and rotate backups." \
-      "$BTN_DISK"
+      "$(BTN_3 clear-logs)"
   elif [ "$pct" -ge "$RULE_DISK_WARN" ]; then
     send_alert "disk_warn" "info" "Disk usage rising ($pct%)" \
       "$used / $total used. Just keeping an eye on this — no action needed yet." \
-      "$BTN_ACK"
+      "$BTN_ACK_ONLY"
   fi
 }
 
@@ -288,11 +290,11 @@ rule_ram() {
             | awk '{printf "  %dMB  %s\n",$1/1024,$2}')"
     send_alert "ram_critical" "critical" "Memory critical ($pct%)" \
       "${used}MB / ${total}MB used. The kernel is about to start killing processes (OOM).\n\nTop consumers:\n\`\`\`\n${top}\n\`\`\`" \
-      "$BTN_RAM"
+      "$(BTN_3 fix)"
   elif [ "$pct" -ge "$RULE_RAM_WARN" ]; then
     send_alert "ram_warn" "warning" "Memory pressure ($pct%)" \
       "${used}MB / ${total}MB used. Consider restarting heavy processes (PHP-FPM, PM2)." \
-      "$BTN_RAM"
+      "$(BTN_3 fix)"
   fi
 }
 
@@ -313,11 +315,11 @@ rule_cpu_load() {
                 | awk '{printf "  %s%%  %s\n",$1,$2}')"
     send_alert "cpu_critical" "critical" "CPU overloaded ($pct%)" \
       "Load average $load1 with only $cores core(s).\n\nTop processes:\n\`\`\`\n${top_cpu}\n\`\`\`" \
-      "$BTN_FIX_STATUS"
+      "$(BTN_3 fix)"
   elif [ "$pct" -ge "$RULE_LOAD_PCT_WARN" ]; then
     send_alert "cpu_warn" "warning" "CPU under load ($pct%)" \
       "Load average $load1 across $cores core(s). Could be a traffic spike or runaway process." \
-      "$BTN_FIX_STATUS"
+      "$(BTN_3 fix)"
   fi
 }
 
@@ -334,7 +336,7 @@ rule_orphans() {
   if [ "$count" -gt "$RULE_ORPHAN_WARN" ]; then
     send_alert "orphans" "warning" "Orphan processes: $count" \
       "$count processes are reparented to PID 1. Usually safe to kill — they're often crashed/abandoned children." \
-      "$BTN_FIX_STATUS"
+      "$(BTN_3 fix)"
   fi
 }
 
@@ -349,7 +351,7 @@ rule_failed_services() {
     local list; list="$(printf -- '- %s\n' $failed)"
     send_alert "failed_svc" "warning" "Failed services" \
       "These systemd units are in a failed state:\n\`\`\`\n${list}\n\`\`\`" \
-      "$BTN_FIX_STATUS"
+      "$(BTN_3 fix)"
   fi
 }
 
@@ -378,11 +380,11 @@ rule_ssl_expiry() {
     if [ "$days_left" -le "$RULE_SSL_DAYS_CRIT" ]; then
       send_alert "ssl_${site}" "critical" "SSL expiring soon: $site" \
         "Certificate for *${site}* expires in *${days_left} day(s)*. Browser warnings will start showing." \
-        "$BTN_SSL"
+        "$(BTN_3 renew-ssl)"
     elif [ "$days_left" -le "$RULE_SSL_DAYS_WARN" ]; then
       send_alert "ssl_${site}_warn" "warning" "SSL renewal due: $site" \
         "Certificate for ${site} expires in ${days_left} days. Time to renew." \
-        "$BTN_SSL"
+        "$(BTN_3 renew-ssl)"
     fi
   done
 }
@@ -406,11 +408,11 @@ rule_http_availability() {
     if [ "$code" = "0" ]; then
       send_alert "http_${site}" "critical" "Site unreachable: $site" \
         "Could not connect to https://${site}/ or http://${site}/. DNS, firewall, or web server may be down." \
-        "$BTN_NGINX"
+        "$(BTN_3 fix-nginx)"
     elif [ "$code" -ge 500 ] && [ "$code" -lt 600 ]; then
       send_alert "http_${site}_${code}" "critical" "Site returning $code: $site" \
         "https://${site}/ returns HTTP $code.\n\nLikely cause: PHP fatal error, plugin conflict, or stack overflow. I can pull the error log for you." \
-        "$BTN_PHP"
+        "$(BTN_3 fix-php-fpm)"
     fi
   done
 }
@@ -435,7 +437,7 @@ rule_custom_ports() {
     local list; list="$(printf -- '- 127.0.0.1:%s\n' "${down[@]}")"
     send_alert "ports_down" "warning" "Custom ports unreachable" \
       "These ports are not listening on localhost:\n\`\`\`\n${list}\n\`\`\`\nApps bound to these ports may have crashed." \
-      "$BTN_FIX_STATUS"
+      "$(BTN_3 fix)"
   fi
 }
 
@@ -457,7 +459,7 @@ rule_fail2ban_spike() {
   if [ "$bans" -gt "$rate" ]; then
     send_alert "fail2ban_spike" "warning" "Brute force surge" \
       "fail2ban banned *${bans}* IP(s) in the last hour. You may be under a brute-force or scanner sweep.\n\nIf this is sustained, consider tightening rate limits or enabling additional jails." \
-      "$BTN_ACK"
+      "$BTN_ACK_ONLY"
   fi
 }
 
@@ -482,7 +484,7 @@ rule_backup_age() {
   if [ "$hours" -gt 36 ]; then
     send_alert "backup_stale" "warning" "Backup may be stalled" \
       "No fresh backup activity detected in the last *${hours}h*. Last RunCloud backup log was $hours hours ago. Check the backup destination is reachable." \
-      "$BTN_ACK"
+      "$BTN_ACK_ONLY"
   fi
 }
 
@@ -515,7 +517,7 @@ rule_heartbeat() {
 
   send_alert "heartbeat_$(date +%Y%m%d)" "info" "Daily check-in" \
     "All systems good 🪶\n\n• RAM ${pct}% (${used}MB/${total}MB)\n• Disk ${disk_pct}%\n• Load ${load1} on ${cores} core(s)\n• ${NGINX_SVC}: ${ngx}" \
-    "$BTN_ACK"
+    "$BTN_ACK_ONLY"
 }
 
 # ── Run all rules ─────────────────────────────────────────────────────────────
