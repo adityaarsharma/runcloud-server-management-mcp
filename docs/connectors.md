@@ -125,13 +125,47 @@ Persist                 ─→  every turn → BRAIN.conversations
 - Every Smart Fix run is logged and undoable.
 - For real ops work, the user has Claude Code / ChatGPT / Gemini one tap away.
 
-### Smart Fix — the only write path in Surface A
+### Smart Fix — the only write path in Surface A (its own component)
 
-Smart Fix is **not** a static if/else table. It is:
+Smart Fix is a **first-class component inside Surface A**, not just a button label. It is the **group-breaking automation** Perch ships — every alert across every probe lands on the same three-button shape, and the first button always says **🔧 Smart Fix**. Behind that one button is a single algorithm.
 
-- A **registry of safe-write actions** seeded with hand-curated fixes
-- An **LLM picker** that reads the Event + brain history and chooses the right action (or none)
-- A **learning loop** that promotes proven patterns from `BRAIN.actions` into the registry over time
+**One button → one callback shape → one registry → one router.**
+
+```
+Alert (any rule)
+   │   [🔧 Smart Fix]
+   │     callback_data: perch:smart-fix:<alert_id>
+   ▼
+POST /smart-fix  body { alert_id }
+   │
+   ▼
+SMART_FIX_REGISTRY (alert → safe-action)
+   ├── nginx_down      → fix-nginx
+   ├── php_fpm_down    → fix-php-fpm
+   ├── mysql_down      → fix-mysql
+   ├── disk_*          → clear-logs
+   ├── ram_* / cpu_*   → smart-fix.sh (multi-check + zombie reap)
+   ├── ssl_*           → renew-ssl
+   ├── orphans         → smart-fix.sh (narrow zombie reap)
+   ├── site_down       → fix-nginx
+   ├── site_5xx        → smart-fix.sh
+   ├── fail2ban_spike  → None  (no safe auto-fix, friendly refusal)
+   ├── backup_age      → None
+   └── ⟨unknown⟩       → smart-fix.sh fallback
+```
+
+Smart Fix is:
+
+- A **registry of safe-write actions** seeded with hand-curated fixes (above)
+- A **router** that maps alert_id → action — explicit, deterministic, auditable
+- A **learning loop** ([`src/scripts/smart-fix-learn.ts`](#)) that promotes proven manual patterns from `BRAIN.actions_log` into the registry nightly, with one-time human ack
+- An **explicit refusal path** for alerts with no safe auto-fix — never guesses
+
+Why it's its own component:
+
+- **No leaked internal names** — users don't see `fix-nginx`, `clear-logs`, `renew-ssl` etc. in any callback or button. Just `Smart Fix`. Internal scripts can be renamed or rewritten without breaking a single Telegram message ever sent.
+- **Adding a new alert** = one new line in `SMART_FIX_REGISTRY`. No new buttons, no new endpoints, no new dispatcher logic in bot.py / Niyati. The registry IS the contract.
+- **The registry is the safety boundary** — Smart Fix never runs an action outside it, even if a user crafts a callback by hand or a brand-new probe emits a never-seen alert_id (catch-all = narrow `smart-fix.sh`).
 
 #### Hard rule
 **An action qualifies as Smart Fix only if it is reversible AND cannot break the site for >10s AND does not mutate user-generated content destructively.**

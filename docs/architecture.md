@@ -45,8 +45,20 @@ Each Reasoning domain gets its own LLM **specialist**; the Orchestrator routes u
 ║   ┌─ Surface A: NOTIFIER (Telegram · Slack · Email · Webhook) ─────┐  ║
 ║   │   Reads:  BRAIN memory + live read-only modules                │  ║
 ║   │           (server IP, visits, ports, df, ps, logs, audits)     │  ║
-║   │   UI:     [Smart Fix]  [Snooze 1h]  [Ignore]                   │  ║
-║   │   Writes: ONLY via Smart Fix (LLM-judged from safe registry)   │  ║
+║   │   UI:     [🔧 Smart Fix]  [💤 Snooze 1h]  [✅ Ack]              │  ║
+║   │                                                                │  ║
+║   │   ┌── SMART FIX (own component, group-breaking automation) ──┐ │  ║
+║   │   │  ONE button on every alert. ONE callback shape:          │ │  ║
+║   │   │     perch:smart-fix:<alert_id>                           │ │  ║
+║   │   │  ONE router: SMART_FIX_REGISTRY (alert_id → action).     │ │  ║
+║   │   │  Internal scripts (fix-nginx, clear-logs, renew-ssl,     │ │  ║
+║   │   │  fix-php-fpm, smart-fix.sh, …) are hidden from users.    │ │  ║
+║   │   │  Adding a new alert type = ONE registry entry, no new    │ │  ║
+║   │   │  buttons, no new endpoints. Learning loop promotes       │ │  ║
+║   │   │  proven manual patterns into the registry nightly.       │ │  ║
+║   │   └──────────────────────────────────────────────────────────┘ │  ║
+║   │                                                                │  ║
+║   │   Writes: ONLY via Smart Fix (registry-bounded, alert-aware)   │  ║
 ║   └────────────────────────────────────────────────────────────────┘  ║
 ║                                                                       ║
 ║   ┌─ Surface B: AI PLUGIN (Claude Code MCP · ChatGPT · Gemini ─────┐  ║
@@ -298,6 +310,58 @@ A guardrail is a rule: `(host, action, args) → allow | deny | require_human_co
 ```
 
 See [`guardrails.md`](./guardrails.md) for full syntax + built-in rules.
+
+---
+
+## Smart Fix — own component inside Surface A
+
+Smart Fix is a first-class piece of Surface A, not just a button label. It is the **group-breaking automation** Perch ships with: every alert across every probe lands on the same three-button shape, and the first button always says **🔧 Smart Fix**. Behind that one button is a single algorithm that knows how to translate "this alert" into "this action".
+
+### One button, one callback, one registry
+
+```
+Telegram alert (any rule)        ┌─────────────────────────────────┐
+   │                             │   SMART_FIX_REGISTRY            │
+   │   [🔧 Smart Fix]            │                                 │
+   │      callback_data:         │   nginx_down       → fix-nginx  │
+   │      perch:smart-fix:       │   php_fpm_down     → fix-php-fpm│
+   │      <alert_id>             │   mysql_down       → fix-mysql  │
+   ▼                             │   disk_high|warn|crit            │
+   ┌──────────────────────┐      │                    → clear-logs │
+   │ POST /smart-fix      │ ───▶ │   ram_*  cpu_*     → smart-fix  │
+   │  body { alert_id }   │      │   ssl_expiring|crit→ renew-ssl  │
+   └──────────────────────┘      │   orphans          → smart-fix  │
+                                  │   site_down        → fix-nginx  │
+                                  │   site_5xx         → smart-fix  │
+                                  │   ports_down       → fix-services│
+                                  │   fail2ban_spike   → None       │
+                                  │   backup_age       → None       │
+                                  │   ⟨unknown⟩        → smart-fix  │
+                                  └─────────────────────────────────┘
+                                                │
+                                                ▼
+                                  Run script · log to BRAIN.actions
+                                  · Telegram reply with outcome
+```
+
+### Why it's its own component
+
+- **One source of truth.** Adding a new alert type → one new entry in `SMART_FIX_REGISTRY`. Not a new endpoint. Not a new callback name. Not a new button.
+- **No leaked internal names.** Users don't see `fix-nginx` / `clear-logs` / `renew-ssl` in any callback or button. Just `Smart Fix`. The internal scripts can be renamed or replaced without breaking a single Telegram message ever sent.
+- **Safe-by-construction.** Alerts with no safe auto-fix (`fail2ban_spike`, `backup_age`) have `None` in the registry → router replies *"no safe auto-fix exists, investigate via Claude Code MCP"* instead of guessing.
+- **Learning loop hooks in here.** [`scripts/smart-fix-learn.ts`](#) (nightly cron) reads `BRAIN.actions_log`, finds patterns where a manual fix worked ≥3 times for the same `(host, action_type)`, and proposes it as a new registry entry. One human ack → auto-fix from the next alert onwards.
+- **Single audit trail.** Every Smart Fix run logs to `BRAIN.actions_log` with `action_type='smart_fix.<alert_id>'` so the learning loop can mine it and the user can `/perch undo`.
+
+### Code locations
+
+- **Router:** `telegram-bot/fix-server.py` — `SMART_FIX_REGISTRY` dict + `POST /smart-fix` handler.
+- **Trigger:** `telegram-bot/monitor.sh` — `BTN_3 <alert_id>` helper, called from every `send_alert` site.
+- **Dispatchers:** `telegram-bot/bot.py` (standalone) and Niyati's `call_fix_server` (Aditya's deploy) — both recognise `perch:smart-fix:<alert_id>` callback shape and POST to `/smart-fix`.
+- **Learning loop:** `src/scripts/smart-fix-learn.ts` — nightly cron promotes proven patterns into the registry.
+
+### Hard rule
+
+Smart Fix never runs an action outside the registry. Even if a user crafts a callback by hand. Even if a probe emits a brand-new alert_id — the router falls back to the catch-all `smart-fix.sh` (which itself only does narrow zombie-reap + log-trim) rather than guessing. The registry IS the safety boundary.
 
 ---
 
