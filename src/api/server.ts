@@ -25,7 +25,7 @@
  */
 
 import { createServer, IncomingMessage, ServerResponse } from "node:http";
-import { initBrain, getBrain, getWebappHistory, incrementKnowledge, logProblem, logAction } from "../core/brain.js";
+import { initBrain, getBrain, getWebappHistory, incrementKnowledge, logProblem, logAction, appendConversation, getRecentConversation, type ConversationTurn } from "../core/brain.js";
 import { vaultGet, vaultList } from "../core/vault.js";
 import { safeForOutput, safeTruncate } from "../core/redact.js";
 import { sshExec, wpCli, detectWebappType } from "../core/ssh-enhanced.js";
@@ -467,7 +467,240 @@ const HANDLERS: Record<string, (args: Record<string, unknown>) => Promise<unknow
       String(a.to), a.subject ? String(a.subject) : undefined,
     );
   },
+
+  // ── Conversational chat (v2.5 Surface A read-only) ────────────────────────
+  // Senior-sysadmin voice. Memory across turns. Heuristic tool routing for
+  // live data (top IPs, WP errors, server pulse, etc.). Read-only — refuses
+  // mutating asks and redirects to Smart Fix or Claude Code MCP.
+  "chat": async (a) => chatHandler(a),
 };
+
+// ─── PERCH CHAT (sysadmin voice) ───────────────────────────────────────────
+
+const PERCH_SYSADMIN_VOICE = `You are Perch — a senior sysadmin who lives inside the user's server. You've watched these systems for years. Sharp. Calm. Hands-on.
+
+# Scope
+- Servers, webapps, infra (nginx-rc, php-fpm-rc, mariadb, redis, SSL)
+- WordPress, Laravel, Node sites
+- RunCloud panel state, Hetzner servers
+- Logs, errors, performance, security
+- Past issues + fixes from your memory
+
+# Out of scope
+- Marketing, content writing, code that's not infra, weather, jokes, personal life
+If asked: "Not my lane — I focus on your infrastructure."
+
+# Voice
+- Hindi/English/Hinglish — match the user's tone exactly
+- Calm, direct, hands-on. Like an oncall engineer who's seen it all.
+- Numbers, paths, service names. Not "things look fine" — "/var/log/nginx-rc/error.log: 12 5xx in last hour, all from 142.93.*."
+- Use 🦅 ONCE at the start when you have fresh data. Never sprinkled.
+- 2-4 sentences typical. No fluff. No "great question". No motivational filler. No trailing emojis.
+- Builder, not best friend. Builder doesn't gush.
+
+# Memory
+You have access to the user's last 20 turns and a brain snapshot (servers, webapps, problems). Reference past issues when relevant — "last time we did pngquant on startupcooking", "yesterday's disk alert was from /var/log/nginx-rc/access". Don't pretend to forget what was discussed earlier.
+
+# Tools (read-only, fired automatically when relevant)
+The orchestrator may auto-fire one of these and inject results as [TOOL: <name>]. Use the result verbatim — don't invent or estimate around it.
+- access_top_ips(domain) — top visitor IPs
+- access_summary(domain) — traffic + URLs + status codes
+- wp_errors(domain?) — WordPress debug.log + plugin errors
+- php_errors() — PHP-FPM errors all sites
+- mysql_errors() — MariaDB errors + slow queries
+- server_pulse() — load/disk/RAM/top procs
+
+# Hard rule (the one you don't break)
+You never write or mutate. If user asks for a fix:
+- Safe known fixes: "Smart Fix card aayega next nudge mei — wait for it. Ya tap karo agar already aaya."
+- Deeper work: "Claude Code mei khol — wahan mera full toolkit hai."
+
+You're Perch. Read-only conversation. Smart Fix is for change. Be useful, be fast, be unfluffy.`;
+
+interface ToolMatch { name: string; args: Record<string, unknown>; }
+
+function detectTool(text: string): ToolMatch | null {
+  const lo = text.toLowerCase();
+  // Pull a domain if mentioned (e.g. "top ips theplusaddons.com")
+  const domainMatch = text.match(/\b([a-z0-9][a-z0-9-]*\.[a-z]{2,}(?:\.[a-z]{2,})?)\b/i);
+  const domain = domainMatch?.[1];
+
+  if (/(top.*ip|visitor|kaun.*visit|top hit|popular ip)/i.test(lo) && domain) {
+    return { name: "access_top_ips", args: { domain } };
+  }
+  if (/(traffic|access.*summary|hits|visits today|status code|url breakdown)/i.test(lo) && domain) {
+    return { name: "access_summary", args: { domain } };
+  }
+  if (/(wp.*error|wordpress.*error|plugin.*error|debug\.log|wp-content.*error)/i.test(lo)) {
+    return { name: "wp_errors", args: domain ? { domain } : {} };
+  }
+  if (/(php.*error|fpm.*error|php8\d.*error)/i.test(lo)) {
+    return { name: "php_errors", args: {} };
+  }
+  if (/(mysql|mariadb|slow.*query|db.*error|sql.*err)/i.test(lo)) {
+    return { name: "mysql_errors", args: {} };
+  }
+  if (/(load|cpu|ram|memory|disk usage|server.*pulse|server.*health|server.*status|kya chal raha|kya hua server)/i.test(lo)) {
+    return { name: "server_pulse", args: {} };
+  }
+  return null;
+}
+
+function buildContextBlock(): string {
+  try {
+    const s = getBrain(brain);
+    const head = `Servers: ${s.server_count} · Webapps: ${s.webapp_count} · Open problems: ${s.unresolved_problems}`;
+    const list = s.servers.slice(0, 5).map((srv) =>
+      `- ${srv.hostname} (${srv.ip}): ${srv.webapp_count} webapps`).join("\n");
+    return `${head}\n${list}`;
+  } catch {
+    return "(brain snapshot unavailable)";
+  }
+}
+
+interface GeminiContent { role: "user" | "model"; parts: Array<{ text: string }>; }
+
+async function callGemini(opts: {
+  apiKey: string;
+  model: string;
+  systemInstruction: string;
+  contents: GeminiContent[];
+}): Promise<{ reply: string; raw: unknown }> {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(opts.model)}:generateContent?key=${encodeURIComponent(opts.apiKey)}`;
+  const body = {
+    systemInstruction: { parts: [{ text: opts.systemInstruction }] },
+    contents: opts.contents,
+    generationConfig: { temperature: 0.6, maxOutputTokens: 1024, topP: 0.9 },
+  };
+  const r = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = (await r.json()) as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>; error?: { message?: string } };
+  if (data.error) {
+    throw new Error(`Gemini API error: ${data.error.message ?? JSON.stringify(data.error)}`);
+  }
+  const reply = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+  return { reply, raw: data };
+}
+
+async function chatHandler(args: Record<string, unknown>): Promise<unknown> {
+  const t0 = Date.now();
+  const chatId = String(args.chat_id ?? args.chatId ?? "default");
+  const message = String(args.message ?? args.text ?? "").trim();
+  const channel = String(args.channel ?? "http");
+
+  if (!message) return { ok: false, error: "message required" };
+
+  const apiKey = String(args.llm_key ?? process.env.PERCH_LLM_API_KEY ?? "");
+  const model = String(args.llm_model ?? process.env.PERCH_LLM_MODEL ?? "gemini-2.5-flash-lite");
+
+  if (!apiKey) {
+    return { ok: false, error: "PERCH_LLM_API_KEY not configured. Set it in ~/.perch/.env (Gemini reference deploy)." };
+  }
+
+  // Heuristic tool routing — fire ONE read-only tool if relevant.
+  let toolMatch: ToolMatch | null = detectTool(message);
+  let toolOutput = "";
+  let toolError = "";
+  if (toolMatch) {
+    try {
+      const handler = HANDLERS[toolMatch.name];
+      if (!handler) {
+        toolError = `Tool ${toolMatch.name} not registered.`;
+      } else {
+        const raw = await handler(toolMatch.args);
+        if (typeof raw === "string") {
+          toolOutput = raw;
+        } else if (raw && typeof raw === "object" && "output" in raw) {
+          toolOutput = String((raw as { output: unknown }).output ?? "");
+        } else {
+          toolOutput = JSON.stringify(raw, null, 2);
+        }
+        toolOutput = toolOutput.slice(0, 3000); // cap context
+      }
+    } catch (e) {
+      toolError = (e as Error).message;
+    }
+  }
+
+  // Load history + brain snapshot
+  const history = getRecentConversation(brain, chatId, 20);
+  const contextBlock = buildContextBlock();
+
+  // Compose Gemini contents
+  const contents: GeminiContent[] = [];
+  // Inject brain context as a model "primer"
+  contents.push({
+    role: "user",
+    parts: [{ text: `[brain snapshot — fresh as of now]\n${contextBlock}` }],
+  });
+  contents.push({
+    role: "model",
+    parts: [{ text: "Acknowledged — I'll reference this snapshot for infra-state questions." }],
+  });
+  // Replay last N turns
+  for (const t of history) {
+    if (t.role === "tool") continue; // tool results inline below if just-fired
+    contents.push({
+      role: t.role === "model" ? "model" : "user",
+      parts: [{ text: t.content }],
+    });
+  }
+  // Current message — with tool result inlined if any
+  let userTurn = message;
+  if (toolMatch && toolOutput) {
+    userTurn = `[TOOL: ${toolMatch.name} ${JSON.stringify(toolMatch.args)}]\n${toolOutput}\n[/TOOL]\n\n${message}`;
+  } else if (toolMatch && toolError) {
+    userTurn = `[TOOL: ${toolMatch.name} — failed: ${toolError}]\n\n${message}`;
+  }
+  contents.push({ role: "user", parts: [{ text: userTurn }] });
+
+  // Call Gemini
+  let reply = "";
+  let geminiErr = "";
+  try {
+    const out = await callGemini({
+      apiKey,
+      model,
+      systemInstruction: PERCH_SYSADMIN_VOICE,
+      contents,
+    });
+    reply = out.reply;
+  } catch (e) {
+    geminiErr = (e as Error).message;
+  }
+
+  if (!reply) {
+    return {
+      ok: false,
+      error: geminiErr || "Empty Gemini reply",
+      tool_used: toolMatch?.name,
+    };
+  }
+
+  // Persist turns (user, optional tool, model)
+  appendConversation(brain, chatId, channel, { role: "user", content: message });
+  if (toolMatch && (toolOutput || toolError)) {
+    appendConversation(brain, chatId, channel, {
+      role: "tool",
+      content: toolOutput || `error: ${toolError}`,
+      tool_name: toolMatch.name,
+      tool_args: JSON.stringify(toolMatch.args),
+    });
+  }
+  appendConversation(brain, chatId, channel, { role: "model", content: reply });
+
+  return {
+    ok: true,
+    reply,
+    tool_used: toolMatch?.name,
+    tool_args: toolMatch?.args,
+    model,
+    latency_ms: Date.now() - t0,
+  };
+}
 
 // ─── Rate limiter (per IP, 60 req/min sliding window) ────────────────────────
 

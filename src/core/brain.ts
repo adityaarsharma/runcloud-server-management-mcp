@@ -228,6 +228,39 @@ export function initBrain(dbPath?: string): Database.Database {
     );
     CREATE INDEX IF NOT EXISTS idx_actions_ts ON actions_log(ts DESC);
 
+    -- Conversations room (v2.5) — every chat turn persisted per chat_id.
+    -- Loaded as context on the next turn so Perch behaves like a sysadmin
+    -- who actually remembers your servers across sessions.
+    CREATE TABLE IF NOT EXISTS conversations (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      chat_id     TEXT NOT NULL,
+      channel     TEXT,                            -- "telegram"|"cli"|"mcp"|"http"
+      role        TEXT NOT NULL,                   -- "user"|"model"|"tool"
+      content     TEXT NOT NULL,
+      tool_name   TEXT,                             -- if role="tool", which one
+      tool_args   TEXT,                             -- JSON
+      tokens_in   INTEGER DEFAULT 0,
+      tokens_out  INTEGER DEFAULT 0,
+      ts          TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_conv_chat_ts ON conversations(chat_id, ts DESC);
+
+    -- Smart Fix registry (v2.5) — learning loop graduates manual patterns
+    -- into auto-fixable Smart Fix actions after one human ack.
+    CREATE TABLE IF NOT EXISTS smart_fix_registry (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      host          TEXT NOT NULL,
+      event_type    TEXT NOT NULL,                 -- e.g. "disk.high"
+      action        TEXT NOT NULL,                 -- e.g. "/clear-logs"
+      promoted_at   TEXT NOT NULL DEFAULT (datetime('now')),
+      promoted_by   TEXT,                           -- chat_id of human who acked
+      last_used_at  TEXT,
+      use_count     INTEGER NOT NULL DEFAULT 0,
+      success_count INTEGER NOT NULL DEFAULT 0,
+      UNIQUE(host, event_type)
+    );
+    CREATE INDEX IF NOT EXISTS idx_sfr_host ON smart_fix_registry(host);
+
     -- FTS5 mirror for fast search across problems (root_cause + raw_log_snippet)
     CREATE VIRTUAL TABLE IF NOT EXISTS problems_fts USING fts5(
       root_cause, raw_log_snippet,
@@ -698,4 +731,69 @@ export function getBrain(db: Database.Database): BrainSummary {
     top_patterns,
     servers,
   };
+}
+
+// ─── CONVERSATIONS (v2.5 chat memory) ─────────────────────────────────────────
+
+export interface ConversationTurn {
+  role: "user" | "model" | "tool";
+  content: string;
+  tool_name?: string;
+  tool_args?: string;
+  ts?: string;
+}
+
+/** Append a single turn to a chat's history. */
+export function appendConversation(
+  db: Database.Database,
+  chatId: string,
+  channel: string,
+  turn: ConversationTurn,
+  tokens?: { in?: number; out?: number }
+): void {
+  db.prepare(
+    `INSERT INTO conversations (chat_id, channel, role, content, tool_name, tool_args, tokens_in, tokens_out)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    chatId,
+    channel,
+    turn.role,
+    turn.content,
+    turn.tool_name ?? null,
+    turn.tool_args ?? null,
+    tokens?.in ?? 0,
+    tokens?.out ?? 0
+  );
+}
+
+/** Last N turns for a chat, oldest-first (so an LLM sees the natural order). */
+export function getRecentConversation(
+  db: Database.Database,
+  chatId: string,
+  limit = 20
+): ConversationTurn[] {
+  const rows = db
+    .prepare(
+      `SELECT role, content, tool_name, tool_args, ts
+         FROM conversations
+        WHERE chat_id = ?
+        ORDER BY id DESC
+        LIMIT ?`
+    )
+    .all(chatId, limit) as Array<{
+      role: string;
+      content: string;
+      tool_name: string | null;
+      tool_args: string | null;
+      ts: string;
+    }>;
+  return rows
+    .reverse()
+    .map((r) => ({
+      role: r.role as "user" | "model" | "tool",
+      content: r.content,
+      tool_name: r.tool_name ?? undefined,
+      tool_args: r.tool_args ?? undefined,
+      ts: r.ts,
+    }));
 }
