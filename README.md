@@ -241,6 +241,8 @@ Claude Code for deep work. Connector for 4am pages. Same brain, same data, same 
 
 ## What's Inside
 
+> **HTTP API tool catalog:** every tool exposed by `perch-api` over HTTP is documented in [`docs/api-tools.md`](./docs/api-tools.md) — 55 tools (brain · conversation · read-only diagnostics · WordPress audit · WordPress mutating · vault · SSH primitives), with required args, mutating-vs-not flags, and which scripts they shell out to.
+
 ```
 perch/
 ├── src/
